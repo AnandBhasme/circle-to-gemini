@@ -1,73 +1,77 @@
-// Google Lens integration — Chromium upload protocol + clipboard fallback
+// Google Lens integration — Direct Image Search via Public Gateway
 
-use std::time::{SystemTime, UNIX_EPOCH};
+use reqwest::Url;
+use std::time::Duration;
 
-/// Uploads an image to Google Lens and returns the results URL.
-pub async fn upload_to_lens(image_path: &str) -> Result<String, String> {
-    let image_data = tokio::fs::read(image_path)
-        .await
-        .map_err(|e| format!("Failed to read image: {e}"))?;
-
+/// Uploads image to a fast public temporary image host and returns its direct URL.
+async fn upload_to_public_host(image_bytes: Vec<u8>) -> Result<String, String> {
     let client = reqwest::Client::builder()
-        .redirect(reqwest::redirect::Policy::none())
+        .timeout(Duration::from_secs(8))
         .build()
-        .map_err(|e| format!("HTTP client error: {e}"))?;
+        .map_err(|e| format!("Client build error: {e}"))?;
 
-    let now_ms = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis())
-        .unwrap_or(0);
+    // Attempt 1: freeimage.host API (fast, reliable, returns raw iili.io direct image)
+    let form = reqwest::multipart::Form::new()
+        .text("key", "6d207e02198a847aa98d0a2a901485a5")
+        .text("action", "upload")
+        .text("format", "json")
+        .part(
+            "source",
+            reqwest::multipart::Part::bytes(image_bytes.clone())
+                .file_name("image.png")
+                .mime_str("image/png")
+                .map_err(|e| format!("MIME error: {e}"))?,
+        );
 
-    let upload_url = format!("https://lens.google.com/upload?ep=ccm&s=&st={now_ms}");
+    if let Ok(resp) = client
+        .post("https://freeimage.host/api/1/upload")
+        .multipart(form)
+        .send()
+        .await
+    {
+        if resp.status().is_success() {
+            if let Ok(json) = resp.json::<serde_json::Value>().await {
+                if let Some(url) = json.pointer("/image/url").and_then(|v| v.as_str()) {
+                    if !url.is_empty() {
+                        return Ok(url.to_string());
+                    }
+                }
+            }
+        }
+    }
 
-    let form = reqwest::multipart::Form::new().part(
-        "encoded_image",
-        reqwest::multipart::Part::bytes(image_data)
+    // Attempt 2: uguu.se (open-source temporary file host, 3-hour TTL)
+    let form_uguu = reqwest::multipart::Form::new().part(
+        "files[]",
+        reqwest::multipart::Part::bytes(image_bytes)
             .file_name("image.png")
             .mime_str("image/png")
             .map_err(|e| format!("MIME error: {e}"))?,
     );
 
-    let resp = client
-        .post(&upload_url)
-        .header(
-            "User-Agent",
-            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 \
-             (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
-        )
-        .header(
-            "Accept",
-            "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
-        )
-        .header("Origin", "https://lens.google.com")
-        .header("Referer", "https://lens.google.com/")
-        .multipart(form)
+    if let Ok(resp) = client
+        .post("https://uguu.se/upload")
+        .multipart(form_uguu)
         .send()
         .await
-        .map_err(|e| format!("Lens upload failed: {e}"))?;
-
-    if let Some(location) = resp.headers().get("location") {
-        if let Ok(url) = location.to_str() {
-            if !url.is_empty() {
-                let full_url = if url.starts_with('/') {
-                    format!("https://lens.google.com{url}")
-                } else {
-                    url.to_string()
-                };
-                return Ok(full_url);
+    {
+        if resp.status().is_success() {
+            if let Ok(json) = resp.json::<serde_json::Value>().await {
+                if let Some(url) = json.pointer("/files/0/url").and_then(|v| v.as_str()) {
+                    if !url.is_empty() {
+                        return Ok(url.to_string());
+                    }
+                }
             }
         }
     }
 
-    if resp.status().is_success() || resp.status().is_redirection() {
-        return Ok(resp.url().to_string());
-    }
-
-    Err(format!("Lens upload returned status: {}", resp.status()))
+    Err("Could not upload to temporary host".to_string())
 }
 
-/// Copies image to clipboard and opens Google Lens in browser.
-/// Uses direct upload if available, otherwise opens Google Lens home for instant paste.
+/// Initiates Google Lens search for a local image.
+/// First copies the image to clipboard (wl-copy) so the user can always paste.
+/// Then generates an official Google Lens uploadbyurl link and opens it in the browser.
 pub async fn search_with_lens(image_path: &str) -> Result<String, String> {
     // Step 1: Copy cropped image to Wayland clipboard so user can always Ctrl+V
     if let Ok(file) = std::fs::File::open(image_path) {
@@ -77,15 +81,28 @@ pub async fn search_with_lens(image_path: &str) -> Result<String, String> {
             .status();
     }
 
-    // Step 2: Try the official Lens upload endpoint
-    match upload_to_lens(image_path).await {
-        Ok(url) => {
-            open::that(&url).map_err(|e| format!("Failed to open browser: {e}"))?;
+    // Step 2: Read image bytes
+    let image_bytes = tokio::fs::read(image_path)
+        .await
+        .map_err(|e| format!("Failed to read image: {e}"))?;
+
+    // Step 3: Upload to temporary host and construct browser search URL
+    match upload_to_public_host(image_bytes).await {
+        Ok(public_url) => {
+            let mut lens_url = Url::parse("https://lens.google.com/uploadbyurl")
+                .map_err(|e| e.to_string())?;
+            lens_url.query_pairs_mut().append_pair("url", &public_url);
+
+            open::that(lens_url.as_str())
+                .map_err(|e| format!("Failed to open browser: {e}"))?;
+
             Ok("Google Lens search opened in browser.".to_string())
         }
         Err(_) => {
-            // Step 3: Fallback - open Lens homepage where image is already on clipboard
-            open::that("https://lens.google.com/").map_err(|e| format!("Failed to open browser: {e}"))?;
+            // Fallback: open Google Lens homepage directly with image on clipboard
+            open::that("https://lens.google.com/")
+                .map_err(|e| format!("Failed to open browser: {e}"))?;
+
             Ok("Opened Google Lens. Image copied to clipboard - press Ctrl+V to search.".to_string())
         }
     }
