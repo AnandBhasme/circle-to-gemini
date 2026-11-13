@@ -1,115 +1,143 @@
-# Circle to Gemini 🔍✨
+# Circle to Gemini 🌟
 
-[![Rust](https://img.shields.io/badge/built_with-Rust-orange.svg)](https://www.rust-lang.org/)
-[![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20KDE%20Plasma%206%20%7C%20Wayland-blue.svg)](https://kde.org/plasma-desktop/)
-[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+> **A native, blazingly fast Linux desktop equivalent of Android's "Circle to Search" and Google Gemini screen assistant.**
+> Built for KDE Plasma 6 (Wayland) using **Rust**, `iced 0.13`, and the Google Gemini Multimodal API.
 
-A native, lightweight Linux counterpart to Android's **"Circle to Search"** and Google Gemini screen assistant. Built entirely in **Rust** using `iced 0.13`, Tokio, and D-Bus.
-
-Select any region, image, formula, code error, or UI element on your screen to instantly analyze it with Google Gemini, extract text with local OCR, or search with Google Lens.
+[![Rust](https://img.shields.io/badge/rust-1.80%2B-orange.svg)](https://www.rust-lang.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Platform: Linux](https://img.shields.io/badge/platform-Linux%20(KDE%20Plasma%206%20%2F%20Wayland)-blueviolet.svg)]()
 
 ---
 
 ## ✨ Features
 
-- **⚡ Instant Screen Freeze & Selection:** Freeze your display on demand and drag a glowing neon box around any content.
-- **🧠 Multimodal Gemini AI:** Ask questions about diagrams, math problems, code snippets, or error dialogs with real-time streaming answers.
-- **💬 Continuous Multi-Turn Chat:** Follow up with context-aware conversational questions without losing your selection.
-- **🎛️ Smart vs. Fast Mode Switcher:**
-  - **Smart:** Full reasoning cascade (`gemini-3.8-flash` $\rightarrow$ `gemini-3.6-flash` $\rightarrow$ `gemini-3.5-flash-lite` $\rightarrow$ `gemini-3.1-flash-lite`) with automatic failover recovery on `503 Service Unavailable` spikes.
-  - **Fast:** Ultra-low latency processing (`gemini-3.5-flash-lite` $\rightarrow$ `gemini-3.1-flash-lite`).
-  - Automatically remembers your last selected mode.
-- **📐 Mathematical Formula Sanitization:** Pre-processes raw LaTeX expressions (`$x_i$`, `$\sigma_i$`, `\forall`, `\le`, `$$...$$`) into clean, readable Unicode (`xᵢ`, `σᵢ`, `∀`, `≤`) and formatted blocks.
-- **📍 Persistent Window Position:** Remembers where you move and resize the Assistant Card on Wayland using KWin compositor integration.
-- **🌐 Open in Gemini Web:** 2-step clipboard pipeline copies your image attachment, opens `gemini.google.com`, and synchronizes your chat transcript.
-- **🔍 Google Lens:** Jump directly to reverse visual search in your browser with one click (no API key required).
-- **📝 Offline OCR:** Instant local text extraction to clipboard via `tesseract` (zero network dependency).
-- **🔒 Privacy First & RAM-Only:** Zero chat logs or user snippets are stored on disk. All conversational memory lives strictly in volatile RAM.
-- **🚀 Native & Lightweight:** Single compiled Rust binary (~15 MB) with sub-millisecond IPC invocation.
+- ⚡ **Instant Invocation (<5ms):** Runs as a lightweight resident background daemon in Rust (~15MB compiled). Summon anytime via **`Meta + S`** (`Windows Key + S`) or the transparent Gemini star icon in your KDE System Tray.
+- 📸 **Wayland Freeze-Frame Capture:** Silently captures your active screen using native Wayland tools and displays a frozen desktop canvas so you can comfortably select moving content, video frames, or dynamic UIs.
+- ✏️ **Interactive Screen Canvas:** Drag a glowing neon rectangle or lasso over any text, error message, UI design, chart, or image on your screen. Press `Esc` at any time to cancel.
+- 🤖 **Multimodal Gemini AI:** Stream responses in real-time using Google's latest multimodal models with multi-turn chat memory directly inside a floating Assistant Card.
+- 🎚️ **Smart vs. Fast Mode:**
+  - **Smart Mode:** Deep reasoning cascade (`gemini-3.8-flash` → `gemini-3.6-flash` → `gemini-3.5-flash-lite` → `gemini-3.1-flash-lite`) with automated recovery from `503 Service Unavailable` demand spikes.
+  - **Fast Mode:** Low-latency quick queries (`gemini-3.5-flash-lite` → `gemini-3.1-flash-lite`).
+  - Remembers your selected mode across reboots.
+- 📐 **Clean Math & Formula Rendering:** Built-in LaTeX-to-Unicode sanitizer converts formulas and variables (e.g. `$x_i$`, `$\sigma_i$`, `\forall`, `\le`) into clean Unicode characters (`xᵢ`, `σᵢ`, `∀`, `≤`) and formats display equations (`$$...$$`) into code blocks.
+- 🪟 **Wayland Window Position Memory:** Uses a native KWin compositor script and window rules so your Assistant Card always remembers where you placed it and re-opens at that exact screen position.
+- 🔍 **Google Lens Integration:** Instant 1-click visual reverse image search in your default web browser (works without an API key).
+- 📝 **Offline OCR:** Extract readable text from your selection directly to your clipboard using local `tesseract` (works completely offline with no network or API key).
+- 🌐 **Continue in Gemini Web:** Automatic 2-step Wayland clipboard sync:
+  1. Copies the screenshot to your clipboard (`image/png`) and opens `gemini.google.com` (press `Ctrl+V` to attach).
+  2. Automatically copies your chat transcript to the clipboard after 4 seconds (press `Ctrl+V` again to paste your prompt).
+- 🔒 **Privacy First:** Conversations exist strictly in volatile RAM for the duration of the assistant card. When you close the card or restart the app, your history is completely wiped. Nothing is logged or saved to disk.
 
 ---
 
-## 📦 Requirements
+## 📋 Prerequisites
 
-- **Operating System:** Linux with **KDE Plasma 6 (Wayland)**
-- **Dependencies:**
-  - `spectacle` (KDE Wayland screenshot tool)
-  - `wl-clipboard` (`wl-copy` for Wayland clipboard support)
-  - `tesseract` (optional, for local offline OCR)
-  - `rust` and `cargo` (for compilation)
+Before installing, ensure your system has the following dependencies:
 
-On Arch Linux / CachyOS:
+### Arch Linux / CachyOS / Manjaro:
 ```bash
-sudo pacman -S spectacle wl-clipboard tesseract tesseract-data-eng rust cargo
+sudo pacman -S --needed rust cargo spectacle wl-clipboard tesseract tesseract-data-eng
+```
+
+### Fedora:
+```bash
+sudo dnf install cargo rust spectacle wl-clipboard tesseract tesseract-langpack-eng
+```
+
+### Ubuntu / Debian:
+```bash
+sudo apt update
+sudo apt install cargo rustc kde-spectacle wl-clipboard tesseract-ocr
 ```
 
 ---
 
-## 🚀 Installation
+## 🚀 Quick Installation
 
-1. **Clone the repository:**
-   ```bash
-   git clone https://github.com/AnandBhasme/circle-to-gemini.git
-   cd circle-to-gemini
-   ```
+Clone the repository and run the automated installer:
 
-2. **Run the installation script:**
-   ```bash
-   ./install.sh
-   ```
+```bash
+git clone https://github.com/AnandBhasme/circle-to-gemini.git
+cd circle-to-gemini
+./install.sh
+```
 
-   The installer will:
-   - Compile the optimized release binary.
-   - Install the executable to `~/.local/bin/circle-to-gemini`.
-   - Register desktop entries and transparent Gemini star icons.
-   - Configure autostart on user login.
-   - Install the KWin compositor script and window rules for position memory.
-   - Register the global shortcut **`Meta+S`** (<kbd>Windows Key</kbd> + <kbd>S</kbd>) in KDE Plasma.
+### What `install.sh` Does:
+1. Compiles the optimized release binary (`~15MB`).
+2. Installs the binary to `~/.local/bin/circle-to-gemini`.
+3. Installs high-resolution app icons into `~/.local/share/icons/`.
+4. Installs the `.desktop` launcher and enables autostart on login.
+5. Installs the KWin position memory script into `~/.local/share/kwin/scripts/`.
+6. Configures KWin window management rules in `~/.config/kwinrulesrc`.
+7. Registers the global shortcut **`Meta + S`** in KDE's `kglobalaccel` over D-Bus.
 
-3. **Start the background daemon:**
+---
+
+## 🎮 How to Use
+
+1. **Start the daemon (if not already running):**
    ```bash
    circle-to-gemini &
    ```
-   *(Or log out and log back in to let the autostart launcher handle it).*
+   *(The installer sets this up to start automatically on login.)*
 
----
+2. **Trigger the Screen Overlay:**
+   - Press **`Meta + S`** (<kbd>Windows Key</kbd> + <kbd>S</kbd>), OR
+   - Click the Gemini star icon in your KDE System Tray, OR
+   - Run `circle-to-gemini --trigger` from any terminal or custom keybinding.
 
-## ⌨️ How to Use
+3. **Select Any Region:**
+   - Click and drag across any area of your screen to capture it.
+   - Press <kbd>Esc</kbd> to dismiss.
 
-| Action | How to Trigger |
-|---|---|
-| **Global Shortcut** | Press <kbd>Meta</kbd> + <kbd>S</kbd> (<kbd>Win</kbd> + <kbd>S</kbd>) |
-| **System Tray** | Click the Gemini star icon in your KDE System Tray |
-| **Terminal / CLI** | Run `circle-to-gemini --trigger` |
-
-1. **Freeze & Select:** When triggered, your display freezes. Click and drag to draw a box around any region (press <kbd>Esc</kbd> to cancel).
-2. **Assistant Card:** The floating assistant card pops up with your cropped snippet preview.
-3. **Quick Actions:**
+4. **Ask Gemini or Take Action:**
    - **Explain:** Get a comprehensive multimodal breakdown.
-   - **Copy Text:** Extract text using offline OCR directly to your clipboard.
-   - **Google Lens:** Reverse image search without needing an API key.
-   - **Open in Gemini Web:** Push image and chat transcript to the browser.
-4. **Follow-up:** Type any question in the prompt bar to chat with Gemini.
+   - **Copy Text:** Extract text straight to your clipboard via offline OCR.
+   - **Google Lens:** Search the visual web with Google Lens.
+   - **Open in Gemini Web:** Continue your conversation on the official web app.
+   - **Follow-up Chat:** Type any conversational question in the prompt input bar.
 
 ---
 
-## ⚙️ Configuration
+## ⚙️ Configuration & API Key
 
-- Click **Settings** in the top bar of the Assistant Card to enter your free Gemini API key.
-- You can get a free key at [Google AI Studio](https://aistudio.google.com/app/apikey).
-- Configuration is saved in `~/.config/ctg/circle-to-gemini/config.json`.
+You can configure your free Gemini API key directly inside the app:
+1. Click the **Settings** button in the top bar of the Assistant Card.
+2. Enter your Gemini API key (get a free key at [Google AI Studio](https://aistudio.google.com/app/apikey)).
+3. Click **Save**.
+
+Settings are persisted in `~/.config/ctg/circle-to-gemini/config.json`.
 
 ---
 
-## 🏗️ Architecture
+## 🏗️ Architecture Overview
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) for full architectural specifications, including IPC socket lifecycle, KWin scripting hooks, and model cascade recovery logic.
+For in-depth technical documentation, see [ARCHITECTURE.md](ARCHITECTURE.md).
+
+```
+[Meta+S or Tray] ──> [Unix IPC Socket /tmp/circle-to-gemini.sock]
+                           │
+                           ▼
+          [Wayland Freeze Capture (KDE Spectacle)]
+                           │
+                           ▼
+       [Fullscreen Overlay (circle-to-gemini-overlay)]
+                           │  (Drag to select)
+                           ▼
+       [Assistant Card (circle-to-gemini-assistant)]
+          ├── Mode Selector (Smart vs. Fast)
+          ├── Gemini SSE Streaming Client
+          ├── LaTeX Math-to-Unicode Sanitizer
+          ├── KWin Geometry Memory Script
+          └── 2-Step Browser Clipboard Sync
+```
 
 ---
 
 ## 🗑️ Uninstallation
 
-To remove all installed files, shortcuts, and configurations:
+To cleanly remove Circle to Gemini, its desktop entries, KWin scripts, and shortcuts:
+
 ```bash
 ./uninstall.sh
 ```
