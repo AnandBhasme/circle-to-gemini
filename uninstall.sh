@@ -34,4 +34,4 @@ if which kbuildsycoca6 >/dev/null 2>&1; then
     kbuildsycoca6 >/dev/null 2>&1 || true
 fi
 
-echo "✓ Circle to Gemini uninstalled."
+echo "[OK] Circle to Gemini uninstalled."

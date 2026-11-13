@@ -10,7 +10,7 @@ echo "=========================================="
 
 # 1. Build release binary if not present
 if [ ! -f "$DIR/target/release/circle-to-gemini" ]; then
-    echo "🔨 Building release binary..."
+    echo "[BUILD] Compiling release binary..."
     cargo build --release
 fi
 
@@ -18,7 +18,7 @@ fi
 mkdir -p "$HOME/.local/bin"
 cp -f "$DIR/target/release/circle-to-gemini" "$HOME/.local/bin/circle-to-gemini"
 chmod +x "$HOME/.local/bin/circle-to-gemini"
-echo "✓ Installed binary to ~/.local/bin/circle-to-gemini"
+echo "[OK] Installed binary to ~/.local/bin/circle-to-gemini"
 
 # 3. Install application icon
 mkdir -p "$HOME/.local/share/icons/hicolor/scalable/apps"
@@ -33,7 +33,7 @@ fi
 if [ -f "$DIR/assets/gemini-icon-128.png" ]; then
     cp -f "$DIR/assets/gemini-icon-128.png" "$HOME/.local/share/icons/hicolor/128x128/apps/circle-to-gemini.png"
 fi
-echo "✓ Installed icons"
+echo "[OK] Installed icons"
 
 # 4. Install desktop entry
 mkdir -p "$HOME/.local/share/applications"
@@ -57,7 +57,7 @@ Name=Capture & Ask Gemini
 Exec=circle-to-gemini --trigger
 EOF
 chmod +x "$HOME/.local/share/applications/circle-to-gemini.desktop"
-echo "✓ Installed desktop entry"
+echo "[OK] Installed desktop entry"
 
 # 5. Enable autostart on login
 mkdir -p "$HOME/.config/autostart"
@@ -72,7 +72,7 @@ Type=Application
 Categories=Utility;
 X-GNOME-Autostart-enabled=true
 EOF
-echo "✓ Configured autostart"
+echo "[OK] Configured autostart"
 
 # 6. Install KWin compositor script for window position memory
 if [ -d "$DIR/kwin-script" ]; then
@@ -81,7 +81,7 @@ if [ -d "$DIR/kwin-script" ]; then
     if which kwriteconfig6 >/dev/null 2>&1; then
         kwriteconfig6 --file kwinrc --group Plugins --key remember-assistantEnabled true || true
     fi
-    echo "✓ Installed KWin position memory script"
+    echo "[OK] Installed KWin position memory script"
 fi
 
 # 7. Configure KWin window rules
@@ -112,7 +112,7 @@ if which kwriteconfig6 >/dev/null 2>&1; then
     kwriteconfig6 --file kwinrulesrc --group "remember-circle-to-gemini-assistant" --key sizerule 4 || true
 
     gdbus call --session --dest org.kde.KWin --object-path /KWin --method org.kde.KWin.reconfigure >/dev/null 2>&1 || true
-    echo "✓ Configured KWin window management rules"
+    echo "[OK] Configured KWin window management rules"
 fi
 
 # 8. Register KDE global shortcut: Meta+S
@@ -127,7 +127,7 @@ if which gdbus >/dev/null 2>&1; then
         "['circle-to-gemini.desktop', '_launch', 'Circle to Gemini', 'Circle to Gemini']" \
         "[([268435539],)]" >/dev/null 2>&1 || true
 
-    echo "✓ Registered global shortcut: Meta+S (Win+S)"
+    echo "[OK] Registered global shortcut: Meta+S (Win+S)"
 fi
 
 if which kbuildsycoca6 >/dev/null 2>&1; then
@@ -135,5 +135,5 @@ if which kbuildsycoca6 >/dev/null 2>&1; then
 fi
 
 echo ""
-echo "🎉 Circle to Gemini installed successfully!"
+echo "Circle to Gemini installed successfully."
 echo "Trigger anytime with Meta+S (Win+S) or click the Gemini star icon in your tray."

@@ -74,23 +74,23 @@ Selection made → overlay closes → cropped image saved to temp file
   ▼
 Floating Assistant Card appears (new window, ~500×600)
   ┌────────────────────────────────────────────────────────────┐
-  │  ✨ Circle to Gemini                          [⚙]  [✕]   │
+  │   Circle to Gemini                          []  []   │
   │  ┌──────────────────────────────────────────────────────┐  │
   │  │          [ Cropped Image Preview ]                   │  │
   │  └──────────────────────────────────────────────────────┘  │
   │                                                            │
-  │  [✨ Explain] [📝 Copy Text] [🔍 Google Lens] [💻 Debug]  │
+  │  [ Explain] [ Copy Text] [ Google Lens] [ Debug]  │
   │                                                            │
   │  ┌──────────────────────────────────────────────┐  [Send] │
   │  │  Ask anything about this...                   │         │
   │  └──────────────────────────────────────────────┘         │
   │                                                            │
   │  ┌──────────────────────────────────────────────────────┐  │
-  │  │  💬 Streaming response area                          │  │
+  │  │   Streaming response area                          │  │
   │  │  (scrollable, monospace for code)                    │  │
   │  └──────────────────────────────────────────────────────┘  │
   │                                                            │
-  │  API Key: [not set — click ⚙ to configure]               │
+  │  API Key: [not set — click  to configure]               │
   └────────────────────────────────────────────────────────────┘
 ```
 
@@ -152,20 +152,20 @@ Floating Assistant Card appears (new window, ~500×600)
 
 ```
 ~/circle-to-gemini/
-├── Cargo.toml              # ✅ Created & tuned (release LTO, stripped binary)
+├── Cargo.toml              #  Created & tuned (release LTO, stripped binary)
 ├── assets/
-│   └── circle-to-gemini.svg# ✅ Created (SVG app & tray icon)
+│   └── circle-to-gemini.svg#  Created (SVG app & tray icon)
 ├── src/
-│   ├── main.rs             # ✅ Created (IPC trigger, single-instance socket, tray spawn)
-│   ├── app.rs              # ✅ Created (Core iced daemon, multi-window, streaming card)
-│   ├── capture.rs          # ✅ Created (KDE Spectacle Wayland capture)
-│   ├── config.rs           # ✅ Created (API key, model, persistence)
-│   ├── gemini.rs           # ✅ Created (streaming SSE API client)
-│   ├── lens.rs             # ✅ Created (Google Lens upload + browser open)
-│   ├── overlay.rs          # ✅ Created (canvas drawing program with Gemini-glow)
-│   └── tray.rs             # ✅ Created (KDE StatusNotifierItem via ksni D-Bus)
-├── circle-to-gemini.desktop # ✅ Created (Desktop entry with actions)
-└── install.sh               # ✅ Created (Build + install + shortcut setup)
+│   ├── main.rs             #  Created (IPC trigger, single-instance socket, tray spawn)
+│   ├── app.rs              #  Created (Core iced daemon, multi-window, streaming card)
+│   ├── capture.rs          #  Created (KDE Spectacle Wayland capture)
+│   ├── config.rs           #  Created (API key, model, persistence)
+│   ├── gemini.rs           #  Created (streaming SSE API client)
+│   ├── lens.rs             #  Created (Google Lens upload + browser open)
+│   ├── overlay.rs          #  Created (canvas drawing program with Gemini-glow)
+│   └── tray.rs             #  Created (KDE StatusNotifierItem via ksni D-Bus)
+├── circle-to-gemini.desktop #  Created (Desktop entry with actions)
+└── install.sh               #  Created (Build + install + shortcut setup)
 ```
 
 ---
@@ -248,9 +248,9 @@ enum Message {
 - "Settings" → sends OpenSettings
 - "Quit" → sends Quit
 
-**Icon:** A simple 32×32 RGBA icon (Gemini sparkle ✨ or a circle-with-crosshair).
+**Icon:** A simple 32×32 RGBA icon (Gemini sparkle  or a circle-with-crosshair).
 
-### 5.3 `overlay.rs` — Drawing Canvas (DONE ✅)
+### 5.3 `overlay.rs` — Drawing Canvas (DONE )
 
 Already implemented with:
 - Rectangle selection (default)
@@ -261,24 +261,24 @@ Already implemented with:
 - Crosshair cursor
 - Esc/Right-click to cancel
 
-### 5.4 `capture.rs` — Screenshot (DONE ✅)
+### 5.4 `capture.rs` — Screenshot (DONE )
 
 - `capture_current_monitor()` → `spectacle -m -b -n -o`
 - `capture_full_desktop()` → `spectacle -f -b -n -o`
 
-### 5.5 `gemini.rs` — Gemini API (DONE ✅)
+### 5.5 `gemini.rs` — Gemini API (DONE )
 
 - `stream_gemini_response()` — SSE streaming with channel
 - `ask_gemini()` — non-streaming fallback
 - Supports image + text multimodal prompts
 - Configurable model name
 
-### 5.6 `lens.rs` — Google Lens (DONE ✅)
+### 5.6 `lens.rs` — Google Lens (DONE )
 
 - `upload_to_lens()` — POST multipart to `lens.google.com/v3/upload`
 - `search_with_lens()` — upload + `xdg-open` the result URL
 
-### 5.7 `config.rs` — Configuration (DONE ✅)
+### 5.7 `config.rs` — Configuration (DONE )
 
 - XDG-compliant path: `~/.config/ctg/circle-to-gemini/config.json`
 - Stores: `gemini_api_key`, `model` (default: `gemini-3.8-flash`)
@@ -333,17 +333,17 @@ kwriteconfig6 --file kglobalshortcutsrc \
 
 | # | Task | Status | Details |
 |---|------|--------|---------|
-| 1 | **`tray.rs`** | ✅ DONE | Native KDE StatusNotifierItem via pure D-Bus with transparent 4-pointed Gemini star icon |
-| 2 | **`app.rs`** | ✅ DONE | Multi-window daemon, overlay canvas, continuous multi-turn chat, native Markdown rendering |
-| 3 | **`main.rs`** | ✅ DONE | Unix IPC listener (`/tmp/circle-to-gemini.sock`), single-instance trigger, background tray daemon |
-| 4 | **App Icon** | ✅ DONE | Transparent Gemini sparkle star in SVG and full PNG mipmaps (16×16 to 256×256) |
-| 5 | **Compile & Build** | ✅ DONE | Built release binary (`15MB`, stripped, optimized thin LTO) |
-| 6 | **`install.sh`** | ✅ DONE | Installs binary to `~/.local/bin/`, desktop launcher, autostart, and shortcut `Meta+S` |
-| 7 | **`.desktop` file** | ✅ DONE | `~/.local/share/applications/circle-to-gemini.desktop` with `StartupWMClass=circle-to-gemini` |
-| 8 | **Lens & OCR** | ✅ DONE | Zero-API-key Google Lens visual search + offline Tesseract OCR |
-| 9 | **Gemini Assistant** | ✅ DONE | Multi-turn continuous chat, native Markdown rendering, and model cascade |
-| 10 | **Model Hierarchy** | ✅ DONE | Starts with `gemini-3.8-flash` -> auto-fallback to `3.6-flash` -> `3.5-flash-lite` -> `3.1-flash-lite` on 503/429 |
-| 11 | **Continue in Web** | ✅ DONE | Two-step clipboard workflow: copies image for browser paste, then transcript for follow-up query |
+| 1 | **`tray.rs`** |  DONE | Native KDE StatusNotifierItem via pure D-Bus with transparent 4-pointed Gemini star icon |
+| 2 | **`app.rs`** |  DONE | Multi-window daemon, overlay canvas, continuous multi-turn chat, native Markdown rendering |
+| 3 | **`main.rs`** |  DONE | Unix IPC listener (`/tmp/circle-to-gemini.sock`), single-instance trigger, background tray daemon |
+| 4 | **App Icon** |  DONE | Transparent Gemini sparkle star in SVG and full PNG mipmaps (16×16 to 256×256) |
+| 5 | **Compile & Build** |  DONE | Built release binary (`15MB`, stripped, optimized thin LTO) |
+| 6 | **`install.sh`** |  DONE | Installs binary to `~/.local/bin/`, desktop launcher, autostart, and shortcut `Meta+S` |
+| 7 | **`.desktop` file** |  DONE | `~/.local/share/applications/circle-to-gemini.desktop` with `StartupWMClass=circle-to-gemini` |
+| 8 | **Lens & OCR** |  DONE | Zero-API-key Google Lens visual search + offline Tesseract OCR |
+| 9 | **Gemini Assistant** |  DONE | Multi-turn continuous chat, native Markdown rendering, and model cascade |
+| 10 | **Model Hierarchy** |  DONE | Starts with `gemini-3.8-flash` -> auto-fallback to `3.6-flash` -> `3.5-flash-lite` -> `3.1-flash-lite` on 503/429 |
+| 11 | **Continue in Web** |  DONE | Two-step clipboard workflow: copies image for browser paste, then transcript for follow-up query |
 
 ---
 
