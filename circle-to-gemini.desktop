@@ -1,0 +1,17 @@
+[Desktop Entry]
+Name=Circle to Gemini
+GenericName=AI Screen Assistant
+Comment=Select any area on screen to ask Gemini AI or search with Google Lens
+Exec=circle-to-gemini --trigger
+Icon=circle-to-gemini
+Terminal=false
+Type=Application
+Categories=Utility;Graphics;Development;
+Keywords=gemini;ai;screenshot;lens;circle;search;
+StartupNotify=false
+StartupWMClass=circle-to-gemini
+Actions=Capture;
+
+[Desktop Action Capture]
+Name=Capture & Ask Gemini
+Exec=circle-to-gemini --trigger

@@ -1,0 +1,15 @@
+{
+    "KPackageStructure": "KWin/Script",
+    "KPlugin": {
+        "Authors": [
+            {
+                "Name": "Circle to Gemini"
+            }
+        ],
+        "Description": "Persists Assistant Card window position and size",
+        "Id": "remember-assistant",
+        "License": "GPL",
+        "Name": "Remember Assistant Position"
+    },
+    "X-Plasma-API": "javascript"
+}
