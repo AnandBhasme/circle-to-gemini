@@ -19,6 +19,10 @@ pub struct OverlayState {
     pub rect_start: Option<Point>,
     /// Current mouse position for rectangle preview
     pub rect_current: Option<Point>,
+    /// Canvas viewport width
+    pub canvas_width: f32,
+    /// Canvas viewport height
+    pub canvas_height: f32,
 }
 
 impl Default for OverlayState {
@@ -27,9 +31,11 @@ impl Default for OverlayState {
             points: Vec::new(),
             is_drawing: false,
             selection_complete: false,
-            rect_mode: true, // default to rectangle for reliability
+            rect_mode: false, // default to Android-style freehand circle selection
             rect_start: None,
             rect_current: None,
+            canvas_width: 1920.0,
+            canvas_height: 1080.0,
         }
     }
 }
@@ -39,11 +45,12 @@ impl OverlayState {
         self.points.clear();
         self.is_drawing = false;
         self.selection_complete = false;
+        self.rect_mode = false;
         self.rect_start = None;
         self.rect_current = None;
     }
 
-    /// Get the bounding rectangle of the selection
+    /// Get the circumscribing bounding rectangle of the selection
     pub fn selection_bounds(&self) -> Option<SelectionRect> {
         if self.rect_mode {
             if let (Some(start), Some(end)) = (self.rect_start, self.rect_current) {
@@ -57,10 +64,12 @@ impl OverlayState {
                         y: y as u32,
                         width: w as u32,
                         height: h as u32,
+                        canvas_width: self.canvas_width,
+                        canvas_height: self.canvas_height,
                     });
                 }
             }
-        } else if self.points.len() > 2 {
+        } else if self.points.len() > 1 {
             let mut min_x = f32::MAX;
             let mut min_y = f32::MAX;
             let mut max_x = f32::MIN;
@@ -71,14 +80,22 @@ impl OverlayState {
                 max_x = max_x.max(p.x);
                 max_y = max_y.max(p.y);
             }
-            let w = max_x - min_x;
-            let h = max_y - min_y;
-            if w > 10.0 && h > 10.0 {
+            let pad = 8.0;
+            let bx = (min_x - pad).max(0.0);
+            let by = (min_y - pad).max(0.0);
+            let max_w = if self.canvas_width > 10.0 { self.canvas_width } else { 1920.0 };
+            let max_h = if self.canvas_height > 10.0 { self.canvas_height } else { 1080.0 };
+            let bw = (max_x - min_x + pad * 2.0).min(max_w - bx);
+            let bh = (max_y - min_y + pad * 2.0).min(max_h - by);
+
+            if bw > 10.0 && bh > 10.0 {
                 return Some(SelectionRect {
-                    x: min_x as u32,
-                    y: min_y as u32,
-                    width: w as u32,
-                    height: h as u32,
+                    x: bx as u32,
+                    y: by as u32,
+                    width: bw as u32,
+                    height: bh as u32,
+                    canvas_width: self.canvas_width,
+                    canvas_height: self.canvas_height,
                 });
             }
         }
@@ -92,14 +109,16 @@ pub struct SelectionRect {
     pub y: u32,
     pub width: u32,
     pub height: u32,
+    pub canvas_width: f32,
+    pub canvas_height: f32,
 }
 
 /// Messages from the overlay canvas
 #[derive(Debug, Clone)]
 pub enum OverlayMessage {
-    StartDraw(Point),
-    Drawing(Point),
-    EndDraw(Point),
+    StartDraw(Point, f32, f32),
+    Drawing(Point, f32, f32),
+    EndDraw(Point, f32, f32),
     Cancel,
 }
 
@@ -126,14 +145,14 @@ impl<'a> canvas::Program<OverlayMessage> for OverlayCanvas<'a> {
             Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
                 (
                     canvas::event::Status::Captured,
-                    Some(OverlayMessage::StartDraw(pos)),
+                    Some(OverlayMessage::StartDraw(pos, bounds.width, bounds.height)),
                 )
             }
             Event::Mouse(mouse::Event::CursorMoved { .. }) => {
                 if self.state.is_drawing {
                     (
                         canvas::event::Status::Captured,
-                        Some(OverlayMessage::Drawing(pos)),
+                        Some(OverlayMessage::Drawing(pos, bounds.width, bounds.height)),
                     )
                 } else {
                     (canvas::event::Status::Ignored, None)
@@ -143,7 +162,7 @@ impl<'a> canvas::Program<OverlayMessage> for OverlayCanvas<'a> {
                 if self.state.is_drawing {
                     (
                         canvas::event::Status::Captured,
-                        Some(OverlayMessage::EndDraw(pos)),
+                        Some(OverlayMessage::EndDraw(pos, bounds.width, bounds.height)),
                     )
                 } else {
                     (canvas::event::Status::Ignored, None)
@@ -253,7 +272,7 @@ impl<'a> canvas::Program<OverlayMessage> for OverlayCanvas<'a> {
                 }
             }
         } else if self.state.points.len() > 1 {
-            // Freehand lasso
+            // Freehand lasso path
             let path = Path::new(|builder| {
                 builder.move_to(self.state.points[0]);
                 for p in &self.state.points[1..] {
@@ -264,24 +283,91 @@ impl<'a> canvas::Program<OverlayMessage> for OverlayCanvas<'a> {
                 }
             });
 
-            // Glow effect
-            for (i, alpha) in [0.15f32, 0.10, 0.06].iter().enumerate() {
-                let width = 6.0 + (i as f32) * 4.0;
-                frame.stroke(
-                    &path,
-                    Stroke::default()
-                        .with_color(Color::from_rgba(0.35, 0.53, 0.98, *alpha))
-                        .with_width(width),
-                );
+            // Multi-layered Google Gemini glow (cyan -> blue -> purple gradient effect)
+            let glow_layers: [(f32, Color); 4] = [
+                (14.0, Color::from_rgba(0.20, 0.60, 1.0, 0.10)),  // broad cyan glow
+                (10.0, Color::from_rgba(0.50, 0.40, 0.95, 0.12)), // purple glow
+                (6.0,  Color::from_rgba(0.35, 0.55, 0.98, 0.20)), // vibrant blue
+                (2.5,  Color::from_rgb(0.50, 0.80, 1.0)),          // bright core stroke
+            ];
+
+            for (w, col) in glow_layers {
+                frame.stroke(&path, Stroke::default().with_color(col).with_width(w));
             }
 
-            // Main stroke
-            frame.stroke(
-                &path,
-                Stroke::default()
-                    .with_color(Color::from_rgb(0.35, 0.53, 0.98))
-                    .with_width(2.5),
-            );
+            // Live circumscribing bounding box around the drawn gesture
+            let mut min_x = f32::MAX;
+            let mut min_y = f32::MAX;
+            let mut max_x = f32::MIN;
+            let mut max_y = f32::MIN;
+            for p in &self.state.points {
+                min_x = min_x.min(p.x);
+                min_y = min_y.min(p.y);
+                max_x = max_x.max(p.x);
+                max_y = max_y.max(p.y);
+            }
+
+            let pad = 8.0;
+            let bx = (min_x - pad).max(0.0);
+            let by = (min_y - pad).max(0.0);
+            let bw = (max_x - min_x + pad * 2.0).min(bounds.width - bx);
+            let bh = (max_y - min_y + pad * 2.0).min(bounds.height - by);
+
+            if bw > 15.0 && bh > 15.0 {
+                // Subtle glowing highlight over circumscribed area
+                frame.fill_rectangle(
+                    Point::new(bx, by),
+                    Size::new(bw, bh),
+                    Color::from_rgba(0.35, 0.55, 0.95, 0.05),
+                );
+
+                // Circumscribing bounding rectangle border
+                let box_path = Path::rectangle(Point::new(bx, by), Size::new(bw, bh));
+                frame.stroke(
+                    &box_path,
+                    Stroke::default()
+                        .with_color(Color::from_rgba(0.40, 0.70, 1.0, 0.40))
+                        .with_width(1.5),
+                );
+
+                // Corner accent brackets to indicate the circumscribed capture region
+                let bracket_len = 12.0f32.min(bw / 3.0).min(bh / 3.0);
+                let bracket_stroke = Stroke::default()
+                    .with_color(Color::from_rgb(0.45, 0.80, 1.0))
+                    .with_width(2.5);
+
+                // Top-left bracket
+                let tl = Path::new(|b| {
+                    b.move_to(Point::new(bx, by + bracket_len));
+                    b.line_to(Point::new(bx, by));
+                    b.line_to(Point::new(bx + bracket_len, by));
+                });
+                frame.stroke(&tl, bracket_stroke);
+
+                // Top-right bracket
+                let tr = Path::new(|b| {
+                    b.move_to(Point::new(bx + bw - bracket_len, by));
+                    b.line_to(Point::new(bx + bw, by));
+                    b.line_to(Point::new(bx + bw, by + bracket_len));
+                });
+                frame.stroke(&tr, bracket_stroke);
+
+                // Bottom-left bracket
+                let bl = Path::new(|b| {
+                    b.move_to(Point::new(bx, by + bh - bracket_len));
+                    b.line_to(Point::new(bx, by + bh));
+                    b.line_to(Point::new(bx + bracket_len, by + bh));
+                });
+                frame.stroke(&bl, bracket_stroke);
+
+                // Bottom-right bracket
+                let br = Path::new(|b| {
+                    b.move_to(Point::new(bx + bw - bracket_len, by + bh));
+                    b.line_to(Point::new(bx + bw, by + bh));
+                    b.line_to(Point::new(bx + bw, by + bh - bracket_len));
+                });
+                frame.stroke(&br, bracket_stroke);
+            }
         }
 
         // Instruction text at top center

@@ -13,7 +13,7 @@
 
 - **Instant Invocation (<5ms):** Runs as a lightweight resident background daemon in Rust (~15MB compiled). Summon anytime via **`Meta + S`** (`Windows Key + S`) or the transparent Gemini star icon in your KDE System Tray.
 - **Wayland Freeze-Frame Capture:** Silently captures your active screen using native Wayland tools and displays a frozen desktop canvas so you can comfortably select moving content, video frames, or dynamic UIs.
-- **Interactive Screen Canvas:** Drag a glowing neon rectangle or lasso over any text, error message, UI design, chart, or image on your screen. Press `Esc` at any time to cancel.
+- **Interactive Screen Canvas & Freehand Circle Selection:** Draw a freehand circle or lasso over any text, error message, UI design, chart, or image on your screen (identical to Android Circle to Search). The selection dynamically circumscribes the bounding rectangle with corner brackets and Gemini gradient glow effects. Press `Esc` or right-click at any time to cancel.
 - **Multimodal Gemini AI:** Stream responses in real-time using Google's latest multimodal models with multi-turn chat memory directly inside a floating Assistant Card.
 - **Smart vs. Fast Mode:**
   - **Smart Mode:** Deep reasoning cascade (`gemini-3.8-flash` -> `gemini-3.6-flash` -> `gemini-3.5-flash-lite` -> `gemini-3.1-flash-lite`) with automated recovery from `503 Service Unavailable` demand spikes.
@@ -21,8 +21,8 @@
   - Remembers your selected mode across reboots.
 - **Clean Math and Formula Rendering:** Built-in LaTeX-to-Unicode sanitizer converts formulas and variables (such as `$x_i$`, `$\sigma_i$`, `\forall`, `\le`) into clean Unicode characters (`xᵢ`, `σᵢ`, `∀`, `≤`) and formats display equations (`$$...$$`) into code blocks.
 - **Wayland Window Position Memory:** Uses a native KWin compositor script and window rules so your Assistant Card always remembers where you placed it and re-opens at that exact screen position.
-- **Google Lens Integration:** Instant 1-click visual reverse image search in your default web browser (works without an API key).
-- **Offline OCR:** Extract readable text from your selection directly to your clipboard using local `tesseract` (works completely offline with no network or API key).
+- **Google Lens Visual Search:** Instant 1-click visual reverse image search in your default web browser powered by the Chromium Lens protocol, with automatic Wayland clipboard fallback.
+- **Selectable Offline OCR:** Extract text from your selection using local `tesseract`. View and drag-select specific words, lines, or math formulas with full mouse cursor selection, copy individual snippets, or insert them directly into your prompt.
 - **Continue in Gemini Web:** Automatic 2-step Wayland clipboard sync:
   1. Copies the screenshot to your clipboard (`image/png`) and opens `gemini.google.com` (press `Ctrl+V` to attach).
   2. Automatically copies your chat transcript to the clipboard after 4 seconds (press `Ctrl+V` again to paste your prompt).

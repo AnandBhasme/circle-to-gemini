@@ -10,7 +10,7 @@ use arboard::Clipboard;
 use iced::widget::canvas::Canvas;
 use iced::widget::{
     button, column, container, horizontal_space, image, markdown, row, scrollable, text,
-    text_input, Column,
+    text_editor, text_input, Column,
 };
 use iced::window;
 use iced::{
@@ -35,7 +35,7 @@ pub struct App {
     active_assistant_id: Option<window::Id>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum WindowState {
     Overlay {
         screenshot_path: String,
@@ -81,7 +81,7 @@ pub enum ChatRole {
     Model,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct AssistantState {
     pub image_path: String,
     pub prompt_input: String,
@@ -90,6 +90,7 @@ pub struct AssistantState {
     pub show_settings: bool,
     pub api_key_input: String,
     pub status_message: Option<String>,
+    pub extracted_text: Option<text_editor::Content<iced::Renderer>>,
 }
 
 #[derive(Debug, Clone)]
@@ -120,6 +121,14 @@ pub enum Message {
     CopyMessage(window::Id, usize),
     CopyAllChat(window::Id),
     CopyPrompt(window::Id),
+
+    // Extracted OCR text interaction
+    EditorAction(window::Id, text_editor::Action),
+    CopyExtractedSelection(window::Id),
+    CopyExtractedAll(window::Id),
+    InsertExtractedToPrompt(window::Id),
+    CloseExtractedText(window::Id),
+    UpdateStatus(window::Id, String),
 
     // Gemini streaming
     GeminiStreamChunk(window::Id, GeminiChunk),
@@ -288,20 +297,26 @@ impl App {
             Message::OverlayAction(id, action) => {
                 if let Some(WindowState::Overlay { drawing, .. }) = self.windows.get_mut(&id) {
                     match action {
-                        OverlayMessage::StartDraw(pos) => {
+                        OverlayMessage::StartDraw(pos, w, h) => {
+                            drawing.canvas_width = w;
+                            drawing.canvas_height = h;
                             drawing.is_drawing = true;
                             drawing.rect_start = Some(pos);
                             drawing.rect_current = Some(pos);
                             drawing.points.clear();
                             drawing.points.push(pos);
                         }
-                        OverlayMessage::Drawing(pos) => {
+                        OverlayMessage::Drawing(pos, w, h) => {
+                            drawing.canvas_width = w;
+                            drawing.canvas_height = h;
                             if drawing.is_drawing {
                                 drawing.rect_current = Some(pos);
                                 drawing.points.push(pos);
                             }
                         }
-                        OverlayMessage::EndDraw(pos) => {
+                        OverlayMessage::EndDraw(pos, w, h) => {
+                            drawing.canvas_width = w;
+                            drawing.canvas_height = h;
                             drawing.is_drawing = false;
                             drawing.rect_current = Some(pos);
                             drawing.points.push(pos);
@@ -364,6 +379,7 @@ impl App {
                     show_settings: false,
                     api_key_input: self.config.gemini_api_key.clone(),
                     status_message: None,
+                    extracted_text: None,
                 };
 
                 self.windows
@@ -425,13 +441,11 @@ impl App {
                             if let Ok(mut cb) = Clipboard::new() {
                                 let _ = cb.set_text(&text);
                             }
+                            let _ = std::process::Command::new("wl-copy").arg(&text).status();
                             if let Some(WindowState::Assistant(state)) = self.windows.get_mut(&id) {
-                                state.messages.push(ChatMessageItem::new(
-                                    ChatRole::Model,
-                                    format!("**Extracted Text:**\n\n```\n{}\n```", text),
-                                ));
+                                state.extracted_text = Some(text_editor::Content::with_text(&text));
                                 state.status_message =
-                                    Some("Text copied to clipboard.".to_string());
+                                    Some("Text extracted. Select specific text to copy, or use Copy Selection / Copy All.".to_string());
                             }
                         } else if let Some(WindowState::Assistant(state)) =
                             self.windows.get_mut(&id)
@@ -452,6 +466,83 @@ impl App {
                 Task::none()
             }
 
+            Message::EditorAction(id, action) => {
+                if let Some(WindowState::Assistant(state)) = self.windows.get_mut(&id) {
+                    if let Some(content) = &mut state.extracted_text {
+                        content.perform(action);
+                    }
+                }
+                Task::none()
+            }
+
+            Message::CopyExtractedSelection(id) => {
+                if let Some(WindowState::Assistant(state)) = self.windows.get_mut(&id) {
+                    if let Some(content) = &state.extracted_text {
+                        let to_copy = content.selection().unwrap_or_else(|| content.text());
+                        if !to_copy.is_empty() {
+                            if let Ok(mut cb) = Clipboard::new() {
+                                let _ = cb.set_text(&to_copy);
+                            }
+                            let _ = std::process::Command::new("wl-copy").arg(&to_copy).status();
+                            let is_partial = content.selection().is_some();
+                            state.status_message = Some(if is_partial {
+                                "Selected text copied to clipboard.".to_string()
+                            } else {
+                                "All text copied to clipboard.".to_string()
+                            });
+                        }
+                    }
+                }
+                Task::none()
+            }
+
+            Message::CopyExtractedAll(id) => {
+                if let Some(WindowState::Assistant(state)) = self.windows.get_mut(&id) {
+                    if let Some(content) = &state.extracted_text {
+                        let text = content.text();
+                        if !text.is_empty() {
+                            if let Ok(mut cb) = Clipboard::new() {
+                                let _ = cb.set_text(&text);
+                            }
+                            let _ = std::process::Command::new("wl-copy").arg(&text).status();
+                            state.status_message = Some("All text copied to clipboard.".to_string());
+                        }
+                    }
+                }
+                Task::none()
+            }
+
+            Message::InsertExtractedToPrompt(id) => {
+                if let Some(WindowState::Assistant(state)) = self.windows.get_mut(&id) {
+                    if let Some(content) = &state.extracted_text {
+                        let to_insert = content.selection().unwrap_or_else(|| content.text());
+                        if !to_insert.is_empty() {
+                            if state.prompt_input.is_empty() {
+                                state.prompt_input = to_insert;
+                            } else {
+                                state.prompt_input.push_str(&format!(" {}", to_insert));
+                            }
+                            state.status_message = Some("Inserted text into prompt bar.".to_string());
+                        }
+                    }
+                }
+                Task::none()
+            }
+
+            Message::CloseExtractedText(id) => {
+                if let Some(WindowState::Assistant(state)) = self.windows.get_mut(&id) {
+                    state.extracted_text = None;
+                }
+                Task::none()
+            }
+
+            Message::UpdateStatus(id, msg) => {
+                if let Some(WindowState::Assistant(state)) = self.windows.get_mut(&id) {
+                    state.status_message = Some(msg);
+                }
+                Task::none()
+            }
+
             Message::ActionLens(id) => {
                 let image_path = if let Some(WindowState::Assistant(state)) = self.windows.get(&id)
                 {
@@ -466,9 +557,12 @@ impl App {
 
                 Task::perform(
                     async move {
-                        let _ = lens::search_with_lens(&image_path).await;
+                        lens::search_with_lens(&image_path).await
                     },
-                    |_| Message::NoOp,
+                    move |res| match res {
+                        Ok(msg) => Message::UpdateStatus(id, msg),
+                        Err(err) => Message::UpdateStatus(id, format!("Lens error: {err}")),
+                    },
                 )
             }
 
@@ -779,7 +873,7 @@ impl App {
 
                 let hint = container(
                     row![
-                        text("Drag to select an area")
+                        text("Circle or draw around anything on your screen")
                             .size(15)
                             .color(Color::WHITE),
                         text(" - Esc or Right-click to cancel")
@@ -1017,6 +1111,59 @@ impl App {
             container(column![]).into()
         };
 
+        // --- Extracted Text Panel (Interactive OCR Selection) ---
+        let extracted_box: Element<'a, Message> = if let Some(content) = &state.extracted_text {
+            let has_sel = content.selection().is_some();
+            let copy_sel_label = if has_sel {
+                "Copy Selection"
+            } else {
+                "Copy All"
+            };
+
+            container(
+                column![
+                    row![
+                        text("Extracted Text (Selectable)").size(13).color(Color::from_rgb(0.7, 0.85, 1.0)),
+                        horizontal_space(),
+                        button(text(copy_sel_label).size(11))
+                            .on_press(Message::CopyExtractedSelection(id))
+                            .style(chip_style)
+                            .padding([3, 8]),
+                        button(text("Copy All").size(11))
+                            .on_press(Message::CopyExtractedAll(id))
+                            .style(button_style_subtle)
+                            .padding([3, 8]),
+                        button(text("Insert in Prompt").size(11))
+                            .on_press(Message::InsertExtractedToPrompt(id))
+                            .style(button_style_subtle)
+                            .padding([3, 8]),
+                        button(text("Close").size(11))
+                            .on_press(Message::CloseExtractedText(id))
+                            .style(button_style_subtle)
+                            .padding([3, 8]),
+                    ]
+                    .align_y(alignment::Vertical::Center)
+                    .spacing(6),
+                    text("Click and drag mouse to select specific text to copy:")
+                        .size(11)
+                        .color(Color::from_rgb(0.6, 0.6, 0.7)),
+                    container(
+                        text_editor(content)
+                            .on_action(move |action| Message::EditorAction(id, action))
+                            .padding(8)
+                    )
+                    .height(Length::Fixed(120.0))
+                    .style(editor_container_style),
+                ]
+                .spacing(6),
+            )
+            .padding(10)
+            .style(extracted_card_style)
+            .into()
+        } else {
+            container(column![]).into()
+        };
+
         // --- Main Layout ---
         container(
             column![
@@ -1028,6 +1175,11 @@ impl App {
                 },
                 preview,
                 action_chips,
+                if state.extracted_text.is_some() {
+                    extracted_box
+                } else {
+                    horizontal_space().into()
+                },
                 input_row,
                 response_box,
                 status_bar,
@@ -1052,12 +1204,26 @@ fn load_window_icon() -> Result<window::Icon, Box<dyn std::error::Error>> {
 /// Helper function to crop the selection from screenshot
 fn crop_image(screenshot_path: &str, rect: SelectionRect) -> Result<String, String> {
     let mut img = ::image::open(screenshot_path).map_err(|e| e.to_string())?;
+    let img_w = img.width();
+    let img_h = img.height();
+
+    let (scale_x, scale_y) = if rect.canvas_width > 10.0 && rect.canvas_height > 10.0 {
+        (img_w as f32 / rect.canvas_width, img_h as f32 / rect.canvas_height)
+    } else {
+        (1.0, 1.0)
+    };
+
+    let crop_x = ((rect.x as f32 * scale_x).round() as u32).min(img_w.saturating_sub(1));
+    let crop_y = ((rect.y as f32 * scale_y).round() as u32).min(img_h.saturating_sub(1));
+    let crop_w = ((rect.width as f32 * scale_x).round() as u32).max(1).min(img_w - crop_x);
+    let crop_h = ((rect.height as f32 * scale_y).round() as u32).max(1).min(img_h - crop_y);
+
     let cropped = ::image::imageops::crop(
         &mut img,
-        rect.x,
-        rect.y,
-        rect.width.max(1),
-        rect.height.max(1),
+        crop_x,
+        crop_y,
+        crop_w,
+        crop_h,
     )
     .to_image();
 
@@ -1150,6 +1316,22 @@ fn settings_card_style(_theme: &Theme) -> container::Style {
     container::Style {
         background: Some(Color::from_rgb(0.14, 0.16, 0.21).into()),
         border: iced::border::rounded(8).color(Color::from_rgb(0.35, 0.50, 0.85)).width(1.0),
+        ..Default::default()
+    }
+}
+
+fn editor_container_style(_theme: &Theme) -> container::Style {
+    container::Style {
+        background: Some(Color::from_rgb(0.10, 0.11, 0.15).into()),
+        border: iced::border::rounded(6).color(Color::from_rgb(0.25, 0.30, 0.45)).width(1.0),
+        ..Default::default()
+    }
+}
+
+fn extracted_card_style(_theme: &Theme) -> container::Style {
+    container::Style {
+        background: Some(Color::from_rgb(0.14, 0.16, 0.22).into()),
+        border: iced::border::rounded(8).color(Color::from_rgb(0.30, 0.45, 0.70)).width(1.0),
         ..Default::default()
     }
 }
