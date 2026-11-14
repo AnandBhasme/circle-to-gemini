@@ -17,6 +17,8 @@ pub struct Config {
     pub debug_logging: bool, // Default is false when shipped
     #[serde(default = "default_single_window")]
     pub single_window_mode: bool, // Close previous assistant when new one opens
+    #[serde(default = "default_system_instruction")]
+    pub system_instruction: String,
     #[serde(default)]
     pub window_x: Option<f32>,
     #[serde(default)]
@@ -39,6 +41,10 @@ fn default_single_window() -> bool {
     true
 }
 
+pub fn default_system_instruction() -> String {
+    "You are a helpful visual assistant. Format your response in clean Markdown. For mathematical formulas, equations, and matrices, use standard LaTeX notation inside display math ($$ ... $$) or inline math ($ ... $). For matrices and game payoff tables, use standard LaTeX matrix environments (such as \\begin{pmatrix} ... \\end{pmatrix} or \\begin{bmatrix} ... \\end{bmatrix}) or clean markdown tables inside display blocks. Always include row and column labels clearly.".to_string()
+}
+
 impl Default for Config {
     fn default() -> Self {
         Self {
@@ -47,6 +53,7 @@ impl Default for Config {
             mode: default_mode(),
             debug_logging: false,
             single_window_mode: true,
+            system_instruction: default_system_instruction(),
             window_x: None,
             window_y: None,
             window_width: None,

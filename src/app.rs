@@ -89,6 +89,7 @@ pub struct AssistantState {
     pub is_loading: bool,
     pub show_settings: bool,
     pub api_key_input: String,
+    pub system_instruction_content: text_editor::Content<iced::Renderer>,
     pub debug_logging: bool,
     pub single_window_mode: bool,
     pub status_message: Option<String>,
@@ -140,6 +141,8 @@ pub enum Message {
     // Settings
     ToggleSettings(window::Id),
     ApiKeyInputChanged(window::Id, String),
+    SystemInstructionAction(window::Id, text_editor::Action),
+    ResetSystemInstruction(window::Id),
     SaveSettings(window::Id),
     OpenApiKeyUrl,
     ToggleDebugLogging(window::Id, bool),
@@ -214,6 +217,7 @@ impl App {
                         if let Some(WindowState::Assistant(state)) = self.windows.get_mut(&id) {
                             state.show_settings = true;
                             state.api_key_input = self.config.gemini_api_key.clone();
+                            state.system_instruction_content = text_editor::Content::with_text(&self.config.system_instruction);
                             state.debug_logging = self.config.debug_logging;
                         }
                     } else {
@@ -386,6 +390,7 @@ impl App {
                     is_loading: false,
                     show_settings: false,
                     api_key_input: self.config.gemini_api_key.clone(),
+                    system_instruction_content: text_editor::Content::with_text(&self.config.system_instruction),
                     debug_logging: self.config.debug_logging,
                     single_window_mode: self.config.single_window_mode,
                     status_message: None,
@@ -752,6 +757,7 @@ impl App {
                 if let Some(WindowState::Assistant(state)) = self.windows.get_mut(&id) {
                     state.show_settings = !state.show_settings;
                     state.api_key_input = self.config.gemini_api_key.clone();
+                    state.system_instruction_content = text_editor::Content::with_text(&self.config.system_instruction);
                     state.debug_logging = self.config.debug_logging;
                     state.single_window_mode = self.config.single_window_mode;
                 }
@@ -765,12 +771,29 @@ impl App {
                 Task::none()
             }
 
+            Message::SystemInstructionAction(id, action) => {
+                if let Some(WindowState::Assistant(state)) = self.windows.get_mut(&id) {
+                    state.system_instruction_content.perform(action);
+                }
+                Task::none()
+            }
+
+            Message::ResetSystemInstruction(id) => {
+                if let Some(WindowState::Assistant(state)) = self.windows.get_mut(&id) {
+                    let default_inst = crate::config::default_system_instruction();
+                    state.system_instruction_content = text_editor::Content::with_text(&default_inst);
+                    state.status_message = Some("System instructions reset to default. Click Save Settings to persist.".to_string());
+                }
+                Task::none()
+            }
+
             Message::SaveSettings(id) => {
                 if let Some(WindowState::Assistant(state)) = self.windows.get_mut(&id) {
                     self.config.gemini_api_key = state.api_key_input.trim().to_string();
+                    self.config.system_instruction = state.system_instruction_content.text();
                     self.config.save();
                     state.show_settings = false;
-                    state.status_message = Some("API key saved.".to_string());
+                    state.status_message = Some("Settings saved successfully.".to_string());
                 }
                 Task::none()
             }
@@ -868,7 +891,7 @@ impl App {
     }
 
     fn query_gemini(&mut self, window_id: window::Id, prompt: String) -> Task<Message> {
-        let (image_path, api_key, mode, history) = {
+        let (image_path, api_key, mode, system_instruction, history) = {
             if let Some(WindowState::Assistant(state)) = self.windows.get_mut(&window_id) {
                 state.is_loading = true;
                 state.status_message = None;
@@ -902,6 +925,7 @@ impl App {
                     state.image_path.clone(),
                     self.config.gemini_api_key.clone(),
                     self.config.mode.clone(),
+                    self.config.system_instruction.clone(),
                     history_msgs,
                 )
             } else {
@@ -926,7 +950,7 @@ impl App {
 
         let (tx, mut rx) = mpsc::unbounded_channel();
         tokio::spawn(async move {
-            gemini::stream_gemini_response(api_key, mode, image_path, history, tx).await;
+            gemini::stream_gemini_response(api_key, mode, system_instruction, image_path, history, tx).await;
         });
 
         Task::run(
@@ -1089,6 +1113,35 @@ impl App {
                     text("When enabled, triggering a new capture automatically closes any open Assistant Card. When disabled, multiple cards can remain open side by side.")
                         .size(11)
                         .color(Color::from_rgb(0.65, 0.65, 0.7)),
+                    container(horizontal_space())
+                        .height(1)
+                        .width(Fill)
+                        .style(|_theme| container::Style {
+                            background: Some(iced::Background::Color(Color::from_rgba(1.0, 1.0, 1.0, 0.08))),
+                            ..Default::default()
+                        }),
+                    row![
+                        text("System Instructions").size(14).color(Color::WHITE),
+                        horizontal_space(),
+                        button(text("Reset to Default").size(11))
+                            .on_press(Message::ResetSystemInstruction(id))
+                            .style(button_style_subtle),
+                    ]
+                    .align_y(alignment::Vertical::Center),
+                    text("Prompt instructions sent to Gemini with every screenshot analysis.")
+                        .size(11)
+                        .color(Color::from_rgb(0.65, 0.65, 0.7)),
+                    container(
+                        text_editor(&state.system_instruction_content)
+                            .on_action(move |action| Message::SystemInstructionAction(id, action))
+                            .padding(8)
+                    )
+                    .height(Length::Fixed(110.0))
+                    .style(editor_container_style),
+                    row![
+                        button(text("Save Settings").size(12))
+                            .on_press(Message::SaveSettings(id)),
+                    ],
                 ]
                 .spacing(10),
             )
@@ -2534,6 +2587,16 @@ x_2 & (4, 4) & (1, 5) \\ \hline
         assert!(sanitized.contains("│ 4   5 │"));
         assert!(sanitized.contains("│ 0   6 │"));
         assert!(sanitized.contains("= 24"));
+    }
+
+    #[test]
+    fn test_config_system_instruction_persistence() {
+        let mut cfg = Config::default();
+        assert!(!cfg.system_instruction.is_empty());
+        cfg.system_instruction = "Custom instruction for testing".to_string();
+        let serialized = serde_json::to_string(&cfg).unwrap();
+        let deserialized: Config = serde_json::from_str(&serialized).unwrap();
+        assert_eq!(deserialized.system_instruction, "Custom instruction for testing");
     }
 
     #[test]

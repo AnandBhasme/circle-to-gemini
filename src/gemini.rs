@@ -102,6 +102,7 @@ const FAST_CASCADE: &[&str] = &[
 pub async fn stream_gemini_response(
     api_key: String,
     mode: String,
+    system_instruction: String,
     image_path: String,
     history: Vec<ChatMessage>,
     tx: mpsc::UnboundedSender<GeminiChunk>,
@@ -145,7 +146,7 @@ pub async fn stream_gemini_response(
             let _ = tx.send(GeminiChunk::Text(notice));
         }
 
-        match stream_inner(&api_key, current_model, &image_path, &history, &tx).await {
+        match stream_inner(&api_key, current_model, &system_instruction, &image_path, &history, &tx).await {
             Ok(()) => {
                 log_info!("gemini", "Model {} completed stream successfully", current_model);
                 succeeded = true;
@@ -183,6 +184,7 @@ pub async fn stream_gemini_response(
 async fn stream_inner(
     api_key: &str,
     model: &str,
+    system_instruction: &str,
     image_path: &str,
     history: &[ChatMessage],
     tx: &mpsc::UnboundedSender<GeminiChunk>,
@@ -223,13 +225,19 @@ async fn stream_inner(
         }
     }
 
-    let request = GeminiRequest {
-        system_instruction: Some(Content {
+    let sys_inst = if system_instruction.trim().is_empty() {
+        None
+    } else {
+        Some(Content {
             role: None,
             parts: vec![Part::Text {
-                text: "You are a helpful visual assistant. Format your response in clean Markdown. For mathematical formulas, equations, and matrices, use standard LaTeX notation inside display math ($$ ... $$) or inline math ($ ... $). For matrices and game payoff tables, use standard LaTeX matrix environments (such as \\begin{pmatrix} ... \\end{pmatrix} or \\begin{bmatrix} ... \\end{bmatrix}) or clean markdown tables inside display blocks. Always include row and column labels clearly.".to_string(),
+                text: system_instruction.trim().to_string(),
             }],
-        }),
+        })
+    };
+
+    let request = GeminiRequest {
+        system_instruction: sys_inst,
         contents,
         generation_config: Some(GenerationConfig {
             temperature: 0.7,
