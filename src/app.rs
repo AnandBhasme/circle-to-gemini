@@ -90,6 +90,7 @@ pub struct AssistantState {
     pub show_settings: bool,
     pub api_key_input: String,
     pub debug_logging: bool,
+    pub single_window_mode: bool,
     pub status_message: Option<String>,
     pub extracted_text: Option<text_editor::Content<iced::Renderer>>,
 }
@@ -146,6 +147,7 @@ pub enum Message {
     ViewLogFile,
     ClearLogs(window::Id),
     SetMode(String),
+    ToggleSingleWindowMode(window::Id, bool),
     WindowEvent(window::Id, window::Event),
 }
 
@@ -385,18 +387,28 @@ impl App {
                     show_settings: false,
                     api_key_input: self.config.gemini_api_key.clone(),
                     debug_logging: self.config.debug_logging,
+                    single_window_mode: self.config.single_window_mode,
                     status_message: None,
                     extracted_text: None,
                 };
 
                 self.windows
                     .insert(assistant_id, WindowState::Assistant(initial_state));
-                self.active_assistant_id = Some(assistant_id);
 
-                Task::batch(vec![
+                // Close the previous assistant window if single-window mode is enabled
+                let mut tasks: Vec<Task<Message>> = vec![
                     window::close(overlay_id),
                     open_task.map(move |id| Message::WindowOpened(id, WindowKindTag::Assistant)),
-                ])
+                ];
+                if self.config.single_window_mode {
+                    if let Some(old_id) = self.active_assistant_id {
+                        self.windows.remove(&old_id);
+                        tasks.push(window::close(old_id));
+                    }
+                }
+                self.active_assistant_id = Some(assistant_id);
+
+                Task::batch(tasks)
             }
 
             Message::PromptChanged(id, val) => {
@@ -741,6 +753,7 @@ impl App {
                     state.show_settings = !state.show_settings;
                     state.api_key_input = self.config.gemini_api_key.clone();
                     state.debug_logging = self.config.debug_logging;
+                    state.single_window_mode = self.config.single_window_mode;
                 }
                 Task::none()
             }
@@ -816,11 +829,34 @@ impl App {
                 Task::none()
             }
 
+            Message::ToggleSingleWindowMode(id, val) => {
+                self.config.single_window_mode = val;
+                self.config.save();
+                if let Some(WindowState::Assistant(state)) = self.windows.get_mut(&id) {
+                    state.single_window_mode = val;
+                    state.status_message = Some(if val {
+                        "Single-window mode enabled. Previous card closes on new capture.".to_string()
+                    } else {
+                        "Single-window mode disabled. Multiple cards allowed.".to_string()
+                    });
+                }
+                Task::none()
+            }
+
             Message::NoOp => Task::none(),
         }
     }
 
     fn start_capture(&self) -> Task<Message> {
+        // Guard: if an overlay is already open do not stack a second one
+        let overlay_already_open = self
+            .windows
+            .values()
+            .any(|s| matches!(s, WindowState::Overlay { .. }));
+        if overlay_already_open {
+            return Task::none();
+        }
+
         Task::perform(
             async {
                 tokio::task::spawn_blocking(crate::capture::capture_current_monitor)
@@ -1034,6 +1070,25 @@ impl App {
                             .style(button_style_subtle),
                     ]
                     .spacing(8),
+                    container(horizontal_space())
+                        .height(1)
+                        .width(Fill)
+                        .style(|_theme| container::Style {
+                            background: Some(iced::Background::Color(Color::from_rgba(1.0, 1.0, 1.0, 0.08))),
+                            ..Default::default()
+                        }),
+                    text("Window Behavior").size(14).color(Color::WHITE),
+                    row![
+                        checkbox(
+                            "Close previous card when opening a new one",
+                            state.single_window_mode
+                        )
+                        .on_toggle(move |val| Message::ToggleSingleWindowMode(id, val)),
+                    ]
+                    .spacing(8),
+                    text("When enabled, triggering a new capture automatically closes any open Assistant Card. When disabled, multiple cards can remain open side by side.")
+                        .size(11)
+                        .color(Color::from_rgb(0.65, 0.65, 0.7)),
                 ]
                 .spacing(10),
             )

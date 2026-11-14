@@ -15,6 +15,8 @@ pub struct Config {
     pub mode: String, // "smart" or "fast"
     #[serde(default)]
     pub debug_logging: bool, // Default is false when shipped
+    #[serde(default = "default_single_window")]
+    pub single_window_mode: bool, // Close previous assistant when new one opens
     #[serde(default)]
     pub window_x: Option<f32>,
     #[serde(default)]
@@ -33,6 +35,10 @@ fn default_mode() -> String {
     "smart".to_string()
 }
 
+fn default_single_window() -> bool {
+    true
+}
+
 impl Default for Config {
     fn default() -> Self {
         Self {
@@ -40,6 +46,7 @@ impl Default for Config {
             model: default_model(),
             mode: default_mode(),
             debug_logging: false,
+            single_window_mode: true,
             window_x: None,
             window_y: None,
             window_width: None,
