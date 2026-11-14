@@ -115,8 +115,16 @@ pub async fn stream_gemini_response(
     let mut last_error = String::new();
     let mut succeeded = false;
 
+    log_info!("gemini", "Initiating stream request (mode: {}, candidates: {:?})", mode, candidate_models);
+
     for (attempt, current_model) in candidate_models.iter().enumerate() {
         if attempt > 0 {
+            log_warn!(
+                "gemini",
+                "Model {} failed. Cascading to {}...",
+                candidate_models[attempt - 1],
+                current_model
+            );
             let notice = format!(
                 "_[Model {} was busy (503). Cascading to {}...]_\n\n",
                 candidate_models[attempt - 1], current_model
@@ -126,11 +134,13 @@ pub async fn stream_gemini_response(
 
         match stream_inner(&api_key, current_model, &image_path, &history, &tx).await {
             Ok(()) => {
+                log_info!("gemini", "Model {} completed stream successfully", current_model);
                 succeeded = true;
                 break;
             }
             Err(e) => {
                 let err_str = e.to_string();
+                log_warn!("gemini", "Model {} failed: {}", current_model, err_str);
                 last_error = err_str.clone();
 
                 let is_recoverable = err_str.contains("503")
@@ -141,10 +151,6 @@ pub async fn stream_gemini_response(
                     || err_str.contains("NOT_FOUND");
 
                 if is_recoverable {
-                    eprintln!(
-                        "Model {} failed with recoverable error: {}. Cascading to next model...",
-                        current_model, err_str
-                    );
                     tokio::time::sleep(tokio::time::Duration::from_millis(400)).await;
                     continue;
                 } else {
@@ -155,6 +161,7 @@ pub async fn stream_gemini_response(
     }
 
     if !succeeded {
+        log_error!("gemini", "All model candidates failed. Last error: {}", last_error);
         tx.send(GeminiChunk::Error(last_error)).ok();
     }
     tx.send(GeminiChunk::Done).ok();
@@ -207,7 +214,7 @@ async fn stream_inner(
         system_instruction: Some(Content {
             role: None,
             parts: vec![Part::Text {
-                text: "You are a helpful visual assistant. Format your response in clean Markdown. For any mathematical formulas, equations, or variables, do NOT use LaTeX dollar signs ($ or $$). Instead use standard readable Unicode characters (like xᵢ, σᵢ, ∀, ∃, ≤, ≥, ≠, →, ², ³, ·) or format multiline formulas in clean code blocks.".to_string(),
+                text: "You are a helpful visual assistant. Format your response in clean Markdown. For mathematical formulas, equations, and matrices, use standard LaTeX notation inside display math ($$ ... $$) or inline math ($ ... $). For matrices, use standard LaTeX environments like \\begin{pmatrix} ... \\end{pmatrix} or \\begin{bmatrix} ... \\end{bmatrix} inside display math blocks.".to_string(),
             }],
         }),
         contents,

@@ -89,16 +89,19 @@ pub async fn search_with_lens(image_path: &str) -> Result<String, String> {
     // Step 3: Upload to temporary host and construct browser search URL
     match upload_to_public_host(image_bytes).await {
         Ok(public_url) => {
+            log_info!("lens", "Image uploaded successfully to gateway: {}", public_url);
             let mut lens_url = Url::parse("https://lens.google.com/uploadbyurl")
                 .map_err(|e| e.to_string())?;
             lens_url.query_pairs_mut().append_pair("url", &public_url);
 
+            log_info!("lens", "Launching browser with Lens URL: {}", lens_url.as_str());
             open::that(lens_url.as_str())
                 .map_err(|e| format!("Failed to open browser: {e}"))?;
 
             Ok("Google Lens search opened in browser.".to_string())
         }
-        Err(_) => {
+        Err(e) => {
+            log_warn!("lens", "Gateway upload failed: {}. Falling back to clipboard paste.", e);
             // Fallback: open Google Lens homepage directly with image on clipboard
             open::that("https://lens.google.com/")
                 .map_err(|e| format!("Failed to open browser: {e}"))?;

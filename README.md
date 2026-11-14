@@ -19,14 +19,14 @@
   - **Smart Mode:** Deep reasoning cascade (`gemini-3.8-flash` -> `gemini-3.6-flash` -> `gemini-3.5-flash-lite` -> `gemini-3.1-flash-lite`) with automated recovery from `503 Service Unavailable` demand spikes.
   - **Fast Mode:** Low-latency quick queries (`gemini-3.5-flash-lite` -> `gemini-3.1-flash-lite`).
   - Remembers your selected mode across reboots.
-- **Clean Math and Formula Rendering:** Built-in LaTeX-to-Unicode sanitizer converts formulas and variables (such as `$x_i$`, `$\sigma_i$`, `\forall`, `\le`) into clean Unicode characters (`xᵢ`, `σᵢ`, `∀`, `≤`) and formats display equations (`$$...$$`) into code blocks.
+- **Clean Math, Matrix, and Formula Rendering:** Built-in LaTeX math sanitizer renders full 2D matrices (`pmatrix`, `bmatrix`, `vmatrix`, `Vmatrix`, `Bmatrix`, `array`, etc.) with properly aligned columns and Unicode brackets, converts math functions (`\cos`, `\sin`, `\tan`, `\det`, `\ln`, `\log`, etc.) and symbols into readable Unicode characters (`xᵢ`, `σᵢ`, `∀`, `≤`, `·`), and formats multiline display equations into monospace code blocks.
 - **Wayland Window Position Memory:** Uses a native KWin compositor script and window rules so your Assistant Card always remembers where you placed it and re-opens at that exact screen position.
 - **Google Lens Visual Search:** Instant 1-click visual reverse image search in your default web browser powered by the Chromium Lens protocol, with automatic Wayland clipboard fallback.
 - **Selectable Offline OCR:** Extract text from your selection using local `tesseract`. View and drag-select specific words, lines, or math formulas with full mouse cursor selection, copy individual snippets, or insert them directly into your prompt.
 - **Continue in Gemini Web:** Automatic 2-step Wayland clipboard sync:
   1. Copies the screenshot to your clipboard (`image/png`) and opens `gemini.google.com` (press `Ctrl+V` to attach).
   2. Automatically copies your chat transcript to the clipboard after 4 seconds (press `Ctrl+V` again to paste your prompt).
-- **Privacy First:** Conversations exist strictly in volatile RAM for the duration of the assistant card. When you close the card or restart the app, your history is completely wiped. Nothing is logged or saved to disk.
+- **Privacy First & Configurable Diagnostics:** Chat history is maintained strictly in volatile RAM for the duration of your session and discarded upon close. Logging is disabled by default for zero disk footprint. When troubleshooting, enable Debug Logging in Settings to write circular rolling logs (capped at 8 MB total with automatic rotation) to `~/.config/circle-to-gemini/logs/`.
 
 ---
 
@@ -92,14 +92,18 @@ cd circle-to-gemini
 
 ---
 
-## Configuration and API Key
+## Configuration and Settings
 
-You can configure your free Gemini API key directly inside the app:
+You can configure your preferences directly inside the Assistant Card:
 1. Click the **Settings** button in the top bar of the Assistant Card.
-2. Enter your Gemini API key (get a free key at [Google AI Studio](https://aistudio.google.com/app/apikey)).
-3. Click **Save**.
+2. **Gemini API Key:** Enter your free Gemini API key (obtainable at [Google AI Studio](https://aistudio.google.com/app/apikey)) and click **Save**.
+3. **Diagnostics & Logging (Off by default):**
+   - Toggle **Enable Debug Logging** on to record assistant lifecycle events, OCR extraction, API requests, and streaming responses.
+   - Logs are stored in `~/.config/circle-to-gemini/logs/app.log`.
+   - Built-in circular log rotation restricts file size to 2 MB per file with at most 3 backups (8 MB maximum total disk usage).
+   - Use the **Open Log Folder**, **View Log File**, or **Clear Logs** buttons for immediate inspection.
 
-Settings are persisted in `~/.config/ctg/circle-to-gemini/config.json`.
+Configuration is persisted in `~/.config/circle-to-gemini/config.json`.
 
 ---
 

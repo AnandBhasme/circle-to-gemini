@@ -14,6 +14,8 @@ pub struct Config {
     #[serde(default = "default_mode")]
     pub mode: String, // "smart" or "fast"
     #[serde(default)]
+    pub debug_logging: bool, // Default is false when shipped
+    #[serde(default)]
     pub window_x: Option<f32>,
     #[serde(default)]
     pub window_y: Option<f32>,
@@ -37,6 +39,7 @@ impl Default for Config {
             gemini_api_key: String::new(),
             model: default_model(),
             mode: default_mode(),
+            debug_logging: false,
             window_x: None,
             window_y: None,
             window_width: None,

@@ -4,6 +4,8 @@
 
 #![allow(dead_code)]
 
+#[macro_use]
+mod logger;
 mod app;
 mod capture;
 mod config;
@@ -21,12 +23,17 @@ use tokio::sync::mpsc;
 const SOCKET_PATH: &str = "/tmp/circle-to-gemini.sock";
 
 fn main() -> iced::Result {
+    let cfg = config::Config::load();
+    logger::init(cfg.debug_logging);
+    log_info!("main", "Circle to Gemini starting up, debug_logging={}", cfg.debug_logging);
+
     let args: Vec<String> = env::args().collect();
     let is_trigger = args.iter().any(|arg| arg == "--trigger" || arg == "-t" || arg == "--capture");
 
     // If an instance is already running, send capture trigger and exit
     if try_send_trigger() {
         println!("Sent capture trigger to running Circle to Gemini instance.");
+        log_info!("main", "Sent capture trigger to running daemon instance and exiting.");
         return Ok(());
     }
 
@@ -105,10 +112,10 @@ async fn listen_ipc(tx: mpsc::UnboundedSender<tray::TrayCommand>) {
             let mut buf = [0u8; 64];
             if let Ok(n) = stream.read(&mut buf).await {
                 let cmd = String::from_utf8_lossy(&buf[..n]);
-                eprintln!("[IPC] received: {}", cmd.trim());
+                log_debug!("ipc", "Received IPC socket message: {}", cmd.trim());
                 if cmd.contains("capture") {
                     let res = tx.send(tray::TrayCommand::Activate);
-                    eprintln!("[IPC] sent to tx: {:?}", res.is_ok());
+                    log_info!("ipc", "Triggered screen capture via IPC, success: {}", res.is_ok());
                 }
             }
         }
