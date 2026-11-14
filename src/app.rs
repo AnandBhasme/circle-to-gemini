@@ -1573,51 +1573,40 @@ fn has_matrix_env(s: &str) -> bool {
     MATRIX_ENVS.iter().any(|env| s.contains(&format!("\\begin{{{}}}", env)))
 }
 
-fn parse_matrix_body(env_type: &str, content: &str) -> Vec<String> {
-    let mut body = content.trim();
-
-    // Strip optional array specifiers: {ccc} or [t]
-    if body.starts_with('{') {
-        if let Some(close) = body.find('}') {
-            body = body[close + 1..].trim();
+fn is_table_separator(line: &str) -> bool {
+    let s = line.trim();
+    if !s.contains('-') {
+        return false;
+    }
+    let trimmed = s.trim_matches('|');
+    let parts: Vec<&str> = trimmed.split('|').map(|p| p.trim()).collect();
+    if parts.is_empty() {
+        return false;
+    }
+    for p in parts {
+        if p.is_empty() || !p.chars().all(|c| c == '-' || c == ':' || c == ' ') || !p.contains('-') {
+            return false;
         }
     }
-    if body.starts_with('[') {
-        if let Some(close) = body.find(']') {
-            body = body[close + 1..].trim();
-        }
-    }
+    true
+}
 
-    let raw_rows: Vec<&str> = body.split("\\\\").collect();
+fn convert_table_to_box(lines: &[&str]) -> String {
     let mut rows: Vec<Vec<String>> = Vec::new();
-
-    for raw in raw_rows {
-        let row_str = raw.replace("\\hline", "");
-        let mut r = row_str.trim();
-        if r.is_empty() {
+    for (idx, l) in lines.iter().enumerate() {
+        if idx == 1 && is_table_separator(l) {
             continue;
         }
-        // Strip row spacing like [4pt] or [1ex]
-        if r.starts_with('[') {
-            if let Some(close) = r.find(']') {
-                r = r[close + 1..].trim();
-            }
-        }
-        if r.is_empty() {
-            continue;
-        }
-
-        let cells: Vec<String> = r
-            .split('&')
-            .map(|cell| clean_latex_formula(cell))
+        let trimmed = l.trim().trim_matches('|');
+        let cells: Vec<String> = trimmed
+            .split('|')
+            .map(|c| clean_latex_formula(c.trim()))
             .collect();
         rows.push(cells);
     }
-
     if rows.is_empty() {
-        return vec!["[]".to_string()];
+        return String::new();
     }
-
     let num_cols = rows.iter().map(|r| r.len()).max().unwrap_or(1);
     for r in &mut rows {
         while r.len() < num_cols {
@@ -1625,38 +1614,309 @@ fn parse_matrix_body(env_type: &str, content: &str) -> Vec<String> {
         }
     }
 
-    // Determine column widths by Unicode character count
     let mut col_widths = vec![0usize; num_cols];
     for r in &rows {
-        for (j, cell) in r.iter().enumerate() {
-            col_widths[j] = col_widths[j].max(str_char_count(cell));
+        for (c, cell) in r.iter().enumerate() {
+            col_widths[c] = col_widths[c].max(str_char_count(cell));
+        }
+    }
+    for w in &mut col_widths {
+        *w = (*w).max(1);
+    }
+
+    let top = format!(
+        "┌{}┐",
+        col_widths
+            .iter()
+            .map(|w| "─".repeat(w + 2))
+            .collect::<Vec<_>>()
+            .join("┬")
+    );
+    let sep = format!(
+        "├{}┤",
+        col_widths
+            .iter()
+            .map(|w| "─".repeat(w + 2))
+            .collect::<Vec<_>>()
+            .join("┼")
+    );
+    let bot = format!(
+        "└{}┘",
+        col_widths
+            .iter()
+            .map(|w| "─".repeat(w + 2))
+            .collect::<Vec<_>>()
+            .join("┴")
+    );
+
+    let mut out = vec![top];
+    for (idx, r) in rows.iter().enumerate() {
+        let mut line = String::from("│");
+        for (c, cell) in r.iter().enumerate() {
+            let cell_len = str_char_count(cell);
+            let pad = col_widths[c].saturating_sub(cell_len);
+            line.push_str(&format!(" {}{} │", cell, " ".repeat(pad)));
+        }
+        out.push(line);
+        if idx == 0 {
+            out.push(sep.clone());
+        }
+    }
+    out.push(bot);
+    out.join("\n")
+}
+
+fn convert_markdown_tables(input: &str) -> String {
+    let lines: Vec<&str> = input.lines().collect();
+    let mut result: Vec<String> = Vec::new();
+    let mut i = 0;
+
+    while i < lines.len() {
+        let line = lines[i];
+        if line.contains('|') && i + 1 < lines.len() && is_table_separator(lines[i + 1]) {
+            let mut table_lines = vec![line, lines[i + 1]];
+            let mut j = i + 2;
+            while j < lines.len() && lines[j].contains('|') && !lines[j].trim().is_empty() {
+                table_lines.push(lines[j]);
+                j += 1;
+            }
+            let box_table = convert_table_to_box(&table_lines);
+            if !box_table.is_empty() {
+                result.push(format!("```\n{}\n```", box_table));
+                i = j;
+                continue;
+            }
+        }
+        result.push(line.to_string());
+        i += 1;
+    }
+    result.join("\n")
+}
+
+fn find_matching_end_env(input: &str, env_name: &str) -> Option<usize> {
+    let begin_tag = format!("\\begin{{{}}}", env_name);
+    let end_tag = format!("\\end{{{}}}", env_name);
+    let mut depth = 1usize;
+    let mut idx = 0;
+
+    while idx < input.len() {
+        let rem = &input[idx..];
+        let next_b = rem.find(&begin_tag);
+        let next_e = rem.find(&end_tag);
+
+        match (next_b, next_e) {
+            (Some(b), Some(e)) if b < e => {
+                depth += 1;
+                idx += b + begin_tag.len();
+            }
+            (_, Some(e)) => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(idx + e);
+                }
+                idx += e + end_tag.len();
+            }
+            _ => break,
+        }
+    }
+    None
+}
+
+fn split_latex_rows(body: &str) -> Vec<String> {
+    let mut rows = Vec::new();
+    let mut current = String::new();
+    let mut depth = 0usize;
+    let mut i = 0;
+    let chars: Vec<char> = body.chars().collect();
+
+    while i < chars.len() {
+        let rem: String = chars[i..].iter().collect();
+        if rem.starts_with("\\begin{") {
+            depth += 1;
+            current.push_str("\\begin{");
+            i += 7;
+            continue;
+        }
+        if rem.starts_with("\\end{") {
+            if depth > 0 {
+                depth -= 1;
+            }
+            current.push_str("\\end{");
+            i += 5;
+            continue;
+        }
+        if depth == 0 && rem.starts_with("\\\\") {
+            let row = current.trim().to_string();
+            if !row.is_empty() {
+                rows.push(row);
+            }
+            current.clear();
+            i += 2;
+            continue;
+        }
+        current.push(chars[i]);
+        i += 1;
+    }
+    let row = current.trim().to_string();
+    if !row.is_empty() {
+        rows.push(row);
+    }
+    rows
+}
+
+fn split_latex_cells(row: &str) -> Vec<String> {
+    let mut cells = Vec::new();
+    let mut current = String::new();
+    let mut depth = 0usize;
+    let chars: Vec<char> = row.chars().collect();
+    let mut i = 0;
+
+    while i < chars.len() {
+        let rem: String = chars[i..].iter().collect();
+        if rem.starts_with("\\begin{") {
+            depth += 1;
+            current.push_str("\\begin{");
+            i += 7;
+            continue;
+        }
+        if rem.starts_with("\\end{") {
+            if depth > 0 {
+                depth -= 1;
+            }
+            current.push_str("\\end{");
+            i += 5;
+            continue;
+        }
+        if depth == 0 && chars[i] == '&' {
+            cells.push(current.trim().to_string());
+            current.clear();
+            i += 1;
+            continue;
+        }
+        current.push(chars[i]);
+        i += 1;
+    }
+    cells.push(current.trim().to_string());
+    cells
+}
+
+fn parse_matrix_body(env_type: &str, content: &str) -> Vec<String> {
+    let mut body = content.trim();
+
+    // Strip optional array specifiers: {ccc} or [t] or multiple {..}
+    while body.starts_with('{') || body.starts_with('[') {
+        if body.starts_with('{') {
+            if let Some(close) = body.find('}') {
+                body = body[close + 1..].trim();
+            } else {
+                break;
+            }
+        } else if body.starts_with('[') {
+            if let Some(close) = body.find(']') {
+                body = body[close + 1..].trim();
+            } else {
+                break;
+            }
         }
     }
 
-    let num_rows = rows.len();
-    let mut lines = Vec::new();
+    let raw_rows = split_latex_rows(body);
+    let mut parsed_rows: Vec<Vec<Vec<String>>> = Vec::new();
 
-    for (i, row) in rows.iter().enumerate() {
-        let mut row_cells = Vec::new();
-        for (j, cell) in row.iter().enumerate() {
-            let w = col_widths[j];
-            let cell_len = str_char_count(cell);
-            let pad_total = w.saturating_sub(cell_len);
-            let pad_left = pad_total / 2;
-            let pad_right = pad_total - pad_left;
-            row_cells.push(format!("{}{}{}", " ".repeat(pad_left), cell, " ".repeat(pad_right)));
+    for raw in raw_rows {
+        let row_clean = raw.replace("\\hline", "");
+        let r = row_clean.trim();
+        if r.is_empty() {
+            continue;
         }
-        let inner = row_cells.join("   ");
 
+        let raw_cells = split_latex_cells(r);
+        let mut row_cells: Vec<Vec<String>> = Vec::new();
+        for cell in raw_cells {
+            let trimmed = cell.trim();
+            if has_matrix_env(trimmed) {
+                let formatted = format_equation_with_matrices(trimmed);
+                let cell_lines: Vec<String> = formatted.lines().map(|l| l.to_string()).collect();
+                row_cells.push(if cell_lines.is_empty() { vec![String::new()] } else { cell_lines });
+            } else {
+                let cleaned = clean_latex_formula(trimmed);
+                row_cells.push(vec![cleaned]);
+            }
+        }
+        parsed_rows.push(row_cells);
+    }
+
+    if parsed_rows.is_empty() {
+        return vec!["[]".to_string()];
+    }
+
+    let num_cols = parsed_rows.iter().map(|r| r.len()).max().unwrap_or(1);
+    for r in &mut parsed_rows {
+        while r.len() < num_cols {
+            r.push(vec![String::new()]);
+        }
+    }
+
+    // Determine column widths
+    let mut col_widths = vec![0usize; num_cols];
+    for r in &parsed_rows {
+        for (j, cell_lines) in r.iter().enumerate() {
+            let max_w = cell_lines.iter().map(|l| str_char_count(l)).max().unwrap_or(0);
+            col_widths[j] = col_widths[j].max(max_w);
+        }
+    }
+
+    let mut result_lines = Vec::new();
+
+    for row in &parsed_rows {
+        let row_h = row.iter().map(|c| c.len()).max().unwrap_or(1);
+        let mut aligned_row_lines = vec![String::new(); row_h];
+
+        for (j, cell_lines) in row.iter().enumerate() {
+            let w = col_widths[j];
+            let cell_h = cell_lines.len();
+            let top_pad = (row_h - cell_h) / 2;
+            let bot_pad = row_h - cell_h - top_pad;
+
+            let mut padded_cell = Vec::new();
+            for _ in 0..top_pad {
+                padded_cell.push(" ".repeat(w));
+            }
+            for line in cell_lines {
+                let len = str_char_count(line);
+                let total_pad = w.saturating_sub(len);
+                let left_pad = total_pad / 2;
+                let right_pad = total_pad - left_pad;
+                padded_cell.push(format!("{}{}{}", " ".repeat(left_pad), line, " ".repeat(right_pad)));
+            }
+            for _ in 0..bot_pad {
+                padded_cell.push(" ".repeat(w));
+            }
+
+            for (line_idx, line_str) in padded_cell.iter().enumerate() {
+                if j > 0 {
+                    aligned_row_lines[line_idx].push_str("   ");
+                }
+                aligned_row_lines[line_idx].push_str(line_str);
+            }
+        }
+
+        result_lines.extend(aligned_row_lines);
+    }
+
+    let num_lines = result_lines.len();
+    let mut final_lines = Vec::new();
+
+    for (i, inner) in result_lines.iter().enumerate() {
         let (left, right) = match env_type {
             "pmatrix" | "pmatrix*" => {
-                if num_rows == 1 {
+                if num_lines == 1 {
                     ("(", ")")
-                } else if num_rows == 2 {
+                } else if num_lines == 2 {
                     if i == 0 { ("⎛ ", " ⎞") } else { ("⎝ ", " ⎠") }
                 } else if i == 0 {
                     ("⎛ ", " ⎞")
-                } else if i == num_rows - 1 {
+                } else if i == num_lines - 1 {
                     ("⎝ ", " ⎠")
                 } else {
                     ("⎜ ", " ⎟")
@@ -1665,27 +1925,30 @@ fn parse_matrix_body(env_type: &str, content: &str) -> Vec<String> {
             "vmatrix" | "vmatrix*" => ("│ ", " │"),
             "Vmatrix" | "Vmatrix*" => ("║ ", " ║"),
             "Bmatrix" | "Bmatrix*" => {
-                if num_rows == 1 {
+                if num_lines == 1 {
                     ("{", "}")
-                } else if num_rows == 2 {
+                } else if num_lines == 2 {
                     if i == 0 { ("⎧ ", " ⎫") } else { ("⎩ ", " ⎭") }
                 } else if i == 0 {
                     ("⎧ ", " ⎫")
-                } else if i == num_rows - 1 {
+                } else if i == num_lines - 1 {
                     ("⎩ ", " ⎭")
                 } else {
                     ("⎨ ", " ⎬")
                 }
             }
+            "array" | "matrix" | "smallmatrix" => {
+                ("", "")
+            }
             _ => {
-                // bmatrix, matrix, array, etc.
-                if num_rows == 1 {
+                // bmatrix, etc.
+                if num_lines == 1 {
                     ("[", "]")
-                } else if num_rows == 2 {
+                } else if num_lines == 2 {
                     if i == 0 { ("⎡ ", " ⎤") } else { ("⎣ ", " ⎦") }
                 } else if i == 0 {
                     ("⎡ ", " ⎤")
-                } else if i == num_rows - 1 {
+                } else if i == num_lines - 1 {
                     ("⎣ ", " ⎦")
                 } else {
                     ("⎢ ", " ⎥")
@@ -1693,10 +1956,14 @@ fn parse_matrix_body(env_type: &str, content: &str) -> Vec<String> {
             }
         };
 
-        lines.push(format!("{}{}{}", left, inner, right));
+        if left.is_empty() && right.is_empty() {
+            final_lines.push(inner.clone());
+        } else {
+            final_lines.push(format!("{}{}{}", left, inner, right));
+        }
     }
 
-    lines
+    final_lines
 }
 
 fn format_equation_with_matrices(input: &str) -> String {
@@ -1717,13 +1984,13 @@ fn format_equation_with_matrices(input: &str) -> String {
                     }
                 }
 
-                let end_tag = format!("\\end{{{}}}", env_name);
                 let body_start = start + 7 + close_brace + 1;
-                if let Some(end_pos) = remainder[body_start..].find(&end_tag) {
+                if let Some(end_pos) = find_matching_end_env(&remainder[body_start..], env_name) {
                     let matrix_content = &remainder[body_start..body_start + end_pos];
                     let matrix_lines = parse_matrix_body(env_name, matrix_content);
                     tokens.push(matrix_lines);
-                    remainder = &remainder[body_start + end_pos + end_tag.len()..];
+                    let end_tag_len = format!("\\end{{{}}}", env_name).len();
+                    remainder = &remainder[body_start + end_pos + end_tag_len..];
                 } else {
                     // Unclosed matrix (e.g. streaming)
                     let matrix_content = &remainder[body_start..];
@@ -1825,12 +2092,14 @@ fn sanitize_markdown_math(input: &str) -> String {
                     result.push_str("```");
                 }
             } else {
-                result.push_str(&sanitize_math_text(block));
+                let converted_tables = convert_markdown_tables(block);
+                result.push_str(&sanitize_math_text(&converted_tables));
             }
         }
         result
     } else {
-        sanitize_math_text(input)
+        let converted_tables = convert_markdown_tables(input);
+        sanitize_math_text(&converted_tables)
     }
 }
 
@@ -2163,6 +2432,49 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_gemini_array_matrix_output() {
+        let prompt1 = r#"$$\begin{array}{c|c|c|} 
+& y_1 & y_2 \\ \hline
+x_1 & (5, 1) & (0, 0) \\ \hline
+x_2 & (4, 4) & (1, 5) \\ \hline
+\end{array}$$"#;
+        let out1 = sanitize_markdown_math(prompt1);
+        assert!(out1.contains("y₁"));
+        assert!(out1.contains("y₂"));
+        assert!(out1.contains("(5, 1)"));
+        assert!(out1.contains("(4, 4)"));
+
+        let prompt3 = r#"$$\begin{array}{cc} & \begin{array}{cc} \text{Col 1} & \text{Col 2} \end{array} \\ \begin{array}{cc} \text{Row 1} \\ \text{Row 2} \end{array} & \begin{pmatrix} (2, 1) & (0, 0) \\ (0, 0) & (1, 2) \end{pmatrix} \end{array}$$"#;
+        let out3 = sanitize_markdown_math(prompt3);
+        assert!(out3.contains("Col 1"));
+        assert!(out3.contains("Col 2"));
+        assert!(out3.contains("Row 1"));
+        assert!(out3.contains("Row 2"));
+        assert!(out3.contains("⎛ (2, 1)"));
+        assert!(out3.contains("⎝ (0, 0)"));
+    }
+
+    #[test]
+    fn test_markdown_table_to_box_drawing() {
+        let table_md = "Here is the payoff matrix:\n\n| | Left | Right |\n|---|---|---|\n| Top | (2, 1) | (0, 0) |\n| Bottom | (0, 0) | (1, 2) |\n\nDone.";
+        let sanitized = sanitize_markdown_math(table_md);
+        assert!(sanitized.contains("```"));
+        assert!(sanitized.contains("┌"));
+        assert!(sanitized.contains("Left"));
+        assert!(sanitized.contains("Right"));
+        assert!(sanitized.contains("Top"));
+        assert!(sanitized.contains("(2, 1)"));
+        assert!(sanitized.contains("Bottom"));
+        assert!(sanitized.contains("┘"));
+
+        // Verify iced markdown::parse actually parses it into items (as a CodeBlock) rather than dropping it
+        let items: Vec<markdown::Item> = markdown::parse(&sanitized).collect();
+        assert!(!items.is_empty());
+        let has_code_block = items.iter().any(|item| matches!(item, markdown::Item::CodeBlock(_)));
+        assert!(has_code_block, "Markdown table must be converted to a CodeBlock so iced renders it");
+    }
+
+    #[test]
     fn test_rotation_matrix_formatting() {
         let input = r"$$R(\theta) = \begin{bmatrix} \cos\theta & -\sin\theta \\ \sin\theta & \cos\theta \end{bmatrix}$$";
         let sanitized = sanitize_markdown_math(input);
@@ -2236,6 +2548,10 @@ mod tests {
 
     #[test]
     fn test_circular_logger() {
+        let temp_dir = std::env::temp_dir().join(format!("ctg_test_log_{}", std::process::id()));
+        std::fs::create_dir_all(&temp_dir).ok();
+        crate::logger::set_custom_log_dir(Some(temp_dir.clone()));
+
         crate::logger::init(true);
         assert!(crate::logger::is_enabled());
         log_info!("test", "Testing log entry");
@@ -2246,10 +2562,17 @@ mod tests {
         crate::logger::set_enabled(false);
         assert!(!crate::logger::is_enabled());
         crate::logger::clear_logs();
+
+        crate::logger::set_custom_log_dir(None);
+        std::fs::remove_dir_all(&temp_dir).ok();
     }
 
     #[test]
     fn test_log_rotation_limit() {
+        let temp_dir = std::env::temp_dir().join(format!("ctg_test_rot_{}", std::process::id()));
+        std::fs::create_dir_all(&temp_dir).ok();
+        crate::logger::set_custom_log_dir(Some(temp_dir.clone()));
+
         crate::logger::init(true);
         crate::logger::clear_logs();
 
@@ -2271,5 +2594,8 @@ mod tests {
 
         crate::logger::set_enabled(false);
         crate::logger::clear_logs();
+
+        crate::logger::set_custom_log_dir(None);
+        std::fs::remove_dir_all(&temp_dir).ok();
     }
 }

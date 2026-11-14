@@ -13,9 +13,21 @@ const MAX_BACKUPS: usize = 3;
 
 static LOGGING_ENABLED: AtomicBool = AtomicBool::new(false);
 static LOG_MUTEX: Mutex<()> = Mutex::new(());
+static CUSTOM_LOG_DIR: Mutex<Option<PathBuf>> = Mutex::new(None);
 
-/// Determine the log directory: ~/.config/circle-to-gemini/logs/
+/// Set or clear a custom log directory (used in isolated unit tests)
+pub fn set_custom_log_dir(path: Option<PathBuf>) {
+    let mut lock = CUSTOM_LOG_DIR.lock().unwrap_or_else(|e| e.into_inner());
+    *lock = path;
+}
+
+/// Determine the log directory: ~/.config/circle-to-gemini/logs/ or custom test dir
 pub fn log_dir() -> PathBuf {
+    if let Ok(guard) = CUSTOM_LOG_DIR.lock() {
+        if let Some(ref custom) = *guard {
+            return custom.clone();
+        }
+    }
     crate::config::Config::config_path()
         .parent()
         .map(|p| p.join("logs"))

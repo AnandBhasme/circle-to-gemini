@@ -115,7 +115,20 @@ pub async fn stream_gemini_response(
     let mut last_error = String::new();
     let mut succeeded = false;
 
-    log_info!("gemini", "Initiating stream request (mode: {}, candidates: {:?})", mode, candidate_models);
+    if let Some(last) = history.last() {
+        log_info!(
+            "gemini",
+            "Sending user prompt ({} chars): {}",
+            last.content.len(),
+            last.content
+        );
+    }
+    log_info!(
+        "gemini",
+        "Initiating stream request (mode: {}, candidates: {:?})",
+        mode,
+        candidate_models
+    );
 
     for (attempt, current_model) in candidate_models.iter().enumerate() {
         if attempt > 0 {
@@ -214,7 +227,7 @@ async fn stream_inner(
         system_instruction: Some(Content {
             role: None,
             parts: vec![Part::Text {
-                text: "You are a helpful visual assistant. Format your response in clean Markdown. For mathematical formulas, equations, and matrices, use standard LaTeX notation inside display math ($$ ... $$) or inline math ($ ... $). For matrices, use standard LaTeX environments like \\begin{pmatrix} ... \\end{pmatrix} or \\begin{bmatrix} ... \\end{bmatrix} inside display math blocks.".to_string(),
+                text: "You are a helpful visual assistant. Format your response in clean Markdown. For mathematical formulas, equations, and matrices, use standard LaTeX notation inside display math ($$ ... $$) or inline math ($ ... $). For matrices and game payoff tables, use standard LaTeX matrix environments (such as \\begin{pmatrix} ... \\end{pmatrix} or \\begin{bmatrix} ... \\end{bmatrix}) or clean markdown tables inside display blocks. Always include row and column labels clearly.".to_string(),
             }],
         }),
         contents,
@@ -240,12 +253,14 @@ async fn stream_inner(
     if !resp.status().is_success() {
         let status = resp.status();
         let body = resp.text().await.unwrap_or_default();
+        log_error!("gemini", "Gemini API error on {}: {} - {}", model, status, body);
         return Err(format!("Gemini API error {}: {}", status, body).into());
     }
 
     // Parse SSE stream
     let mut stream = resp.bytes_stream();
     let mut buffer = String::new();
+    let mut full_response = String::new();
 
     while let Some(chunk) = stream.next().await {
         let chunk = chunk?;
@@ -262,6 +277,13 @@ async fn stream_inner(
                 if let Some(data) = line.strip_prefix("data: ") {
                     let data = data.trim();
                     if data == "[DONE]" {
+                        log_info!(
+                            "gemini",
+                            "Model {} completed stream. Total response ({} chars):\n{}",
+                            model,
+                            full_response.len(),
+                            full_response
+                        );
                         return Ok(());
                     }
                     if let Ok(resp) = serde_json::from_str::<StreamResponse>(data) {
@@ -272,6 +294,7 @@ async fn stream_inner(
                                         for part in parts {
                                             if let Some(t) = part.text {
                                                 if !t.is_empty() {
+                                                    full_response.push_str(&t);
                                                     tx.send(GeminiChunk::Text(t)).ok();
                                                 }
                                             }
@@ -300,6 +323,7 @@ async fn stream_inner(
                                     for part in parts {
                                         if let Some(t) = part.text {
                                             if !t.is_empty() {
+                                                full_response.push_str(&t);
                                                 tx.send(GeminiChunk::Text(t)).ok();
                                             }
                                         }
@@ -313,6 +337,13 @@ async fn stream_inner(
         }
     }
 
+    log_info!(
+        "gemini",
+        "Model {} stream completed. Total response ({} chars):\n{}",
+        model,
+        full_response.len(),
+        full_response
+    );
     Ok(())
 }
 
