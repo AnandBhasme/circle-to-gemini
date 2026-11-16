@@ -1578,7 +1578,13 @@ fn format_subscript(s: &str) -> String {
             'u' => out.push('ᵤ'),
             'v' => out.push('ᵥ'),
             'x' => out.push('ₓ'),
-            _ => return format!("_{}", s),
+            _ => {
+                if s.chars().count() > 1 {
+                    return format!("[{}]", s);
+                } else {
+                    return format!("_{}", s);
+                }
+            }
         }
     }
     out
@@ -1603,8 +1609,31 @@ fn format_superscript(s: &str) -> String {
             '=' => out.push('⁼'),
             '(' => out.push('⁽'),
             ')' => out.push('⁾'),
-            'n' => out.push('ⁿ'),
+            'a' => out.push('ᵃ'),
+            'b' => out.push('ᵇ'),
+            'c' => out.push('ᶜ'),
+            'd' => out.push('ᵈ'),
+            'e' => out.push('ᵉ'),
+            'f' => out.push('ᶠ'),
+            'g' => out.push('ᵍ'),
+            'h' => out.push('ʰ'),
             'i' => out.push('ⁱ'),
+            'j' => out.push('ʲ'),
+            'k' => out.push('ᵏ'),
+            'l' => out.push('ˡ'),
+            'm' => out.push('ᵐ'),
+            'n' => out.push('ⁿ'),
+            'o' => out.push('ᵒ'),
+            'p' => out.push('ᵖ'),
+            'r' => out.push('ʳ'),
+            's' => out.push('ˢ'),
+            't' => out.push('ᵗ'),
+            'u' => out.push('ᵘ'),
+            'v' => out.push('ᵛ'),
+            'w' => out.push('ʷ'),
+            'x' => out.push('ˣ'),
+            'y' => out.push('ʸ'),
+            'z' => out.push('ᶻ'),
             'T' => out.push('ᵀ'),
             '*' => out.push('*'),
             _ => return format!("^{}", s),
@@ -1616,6 +1645,8 @@ fn format_superscript(s: &str) -> String {
 const MATRIX_ENVS: &[&str] = &[
     "pmatrix", "bmatrix", "Bmatrix", "vmatrix", "Vmatrix", "matrix", "smallmatrix", "array",
     "pmatrix*", "bmatrix*", "Bmatrix*", "vmatrix*", "Vmatrix*", "matrix*",
+    "cases", "cases*", "dcases", "dcases*", "rcases", "rcases*",
+    "aligned", "aligned*", "gathered", "gathered*", "split",
 ];
 
 fn str_char_count(s: &str) -> usize {
@@ -1931,6 +1962,13 @@ fn parse_matrix_body(env_type: &str, content: &str) -> Vec<String> {
             let top_pad = (row_h - cell_h) / 2;
             let bot_pad = row_h - cell_h - top_pad;
 
+            let is_left_aligned = env_type.starts_with("case")
+                || env_type.starts_with("rcase")
+                || env_type.starts_with("dcase")
+                || env_type.starts_with("align")
+                || env_type.starts_with("gather")
+                || env_type == "split";
+
             let mut padded_cell = Vec::new();
             for _ in 0..top_pad {
                 padded_cell.push(" ".repeat(w));
@@ -1938,8 +1976,12 @@ fn parse_matrix_body(env_type: &str, content: &str) -> Vec<String> {
             for line in cell_lines {
                 let len = str_char_count(line);
                 let total_pad = w.saturating_sub(len);
-                let left_pad = total_pad / 2;
-                let right_pad = total_pad - left_pad;
+                let (left_pad, right_pad) = if is_left_aligned {
+                    (0, total_pad)
+                } else {
+                    let lp = total_pad / 2;
+                    (lp, total_pad - lp)
+                };
                 padded_cell.push(format!("{}{}{}", " ".repeat(left_pad), line, " ".repeat(right_pad)));
             }
             for _ in 0..bot_pad {
@@ -1986,11 +2028,43 @@ fn parse_matrix_body(env_type: &str, content: &str) -> Vec<String> {
                     ("⎧ ", " ⎫")
                 } else if i == num_lines - 1 {
                     ("⎩ ", " ⎭")
-                } else {
+                } else if i == num_lines / 2 {
                     ("⎨ ", " ⎬")
+                } else {
+                    ("⎪ ", " ⎪")
                 }
             }
-            "array" | "matrix" | "smallmatrix" => {
+            "cases" | "cases*" | "dcases" | "dcases*" => {
+                if num_lines == 1 {
+                    ("{ ", "")
+                } else if num_lines == 2 {
+                    if i == 0 { ("⎧ ", "") } else { ("⎩ ", "") }
+                } else if i == 0 {
+                    ("⎧ ", "")
+                } else if i == num_lines - 1 {
+                    ("⎩ ", "")
+                } else if i == num_lines / 2 {
+                    ("⎨ ", "")
+                } else {
+                    ("⎪ ", "")
+                }
+            }
+            "rcases" | "rcases*" => {
+                if num_lines == 1 {
+                    ("", " }")
+                } else if num_lines == 2 {
+                    if i == 0 { ("", " ⎫") } else { ("", " ⎭") }
+                } else if i == 0 {
+                    ("", " ⎫")
+                } else if i == num_lines - 1 {
+                    ("", " ⎭")
+                } else if i == num_lines / 2 {
+                    ("", " ⎬")
+                } else {
+                    ("", " ⎪")
+                }
+            }
+            "aligned" | "aligned*" | "gathered" | "gathered*" | "split" | "array" | "matrix" | "smallmatrix" => {
                 ("", "")
             }
             _ => {
@@ -2166,14 +2240,14 @@ fn sanitize_math_text(input: &str) -> String {
     normalized = normalized.replace("\\end{equation}", "\n$$\n");
     normalized = normalized.replace("\\begin{equation*}", "\n$$\n");
     normalized = normalized.replace("\\end{equation*}", "\n$$\n");
-    normalized = normalized.replace("\\begin{align}", "\n$$\n");
-    normalized = normalized.replace("\\end{align}", "\n$$\n");
-    normalized = normalized.replace("\\begin{align*}", "\n$$\n");
-    normalized = normalized.replace("\\end{align*}", "\n$$\n");
-    normalized = normalized.replace("\\begin{gather}", "\n$$\n");
-    normalized = normalized.replace("\\end{gather}", "\n$$\n");
-    normalized = normalized.replace("\\begin{gather*}", "\n$$\n");
-    normalized = normalized.replace("\\end{gather*}", "\n$$\n");
+    normalized = normalized.replace("\\begin{align}", "\n$$\n\\begin{aligned}\n");
+    normalized = normalized.replace("\\end{align}", "\n\\end{aligned}\n$$\n");
+    normalized = normalized.replace("\\begin{align*}", "\n$$\n\\begin{aligned}\n");
+    normalized = normalized.replace("\\end{align*}", "\n\\end{aligned}\n$$\n");
+    normalized = normalized.replace("\\begin{gather}", "\n$$\n\\begin{gathered}\n");
+    normalized = normalized.replace("\\end{gather}", "\n\\end{gathered}\n$$\n");
+    normalized = normalized.replace("\\begin{gather*}", "\n$$\n\\begin{gathered}\n");
+    normalized = normalized.replace("\\end{gather*}", "\n\\end{gathered}\n$$\n");
     normalized = normalized.replace("\\(", "$");
     normalized = normalized.replace("\\)", "$");
 
@@ -2265,11 +2339,259 @@ fn sanitize_inline_math(input: &str) -> String {
     result
 }
 
+fn convert_blackboard(input: &str) -> String {
+    let mut s = input.to_string();
+    while let Some(start) = s.find("\\mathbb{") {
+        let prefix_len = 8;
+        if let Some(close) = s[start + prefix_len..].find('}') {
+            let inner = &s[start + prefix_len..start + prefix_len + close];
+            let converted: String = inner
+                .chars()
+                .map(|c| match c {
+                    'C' => 'ℂ',
+                    'H' => 'ℍ',
+                    'N' => 'ℕ',
+                    'P' => 'ℙ',
+                    'Q' => 'ℚ',
+                    'R' => 'ℝ',
+                    'Z' => 'ℤ',
+                    '0' => '𝟘',
+                    '1' => '𝟙',
+                    '2' => '𝟚',
+                    '3' => '𝟛',
+                    '4' => '𝟜',
+                    '5' => '𝟝',
+                    '6' => '𝟞',
+                    '7' => '𝟟',
+                    '8' => '𝟠',
+                    '9' => '𝟡',
+                    'A'..='Z' => {
+                        let offset = c as u32 - 'A' as u32;
+                        char::from_u32(0x1D538 + offset).unwrap_or(c)
+                    }
+                    'a'..='z' => {
+                        let offset = c as u32 - 'a' as u32;
+                        char::from_u32(0x1D552 + offset).unwrap_or(c)
+                    }
+                    _ => c,
+                })
+                .collect();
+            s = format!("{}{}{}", &s[..start], converted, &s[start + prefix_len + close + 1..]);
+        } else {
+            break;
+        }
+    }
+    s
+}
+
+fn convert_script(input: &str) -> String {
+    let mut s = input.to_string();
+    for prefix in &["\\mathcal{", "\\mathscr{"] {
+        while let Some(start) = s.find(prefix) {
+            let prefix_len = prefix.len();
+            if let Some(close) = s[start + prefix_len..].find('}') {
+                let inner = &s[start + prefix_len..start + prefix_len + close];
+                let converted: String = inner
+                    .chars()
+                    .map(|c| match c {
+                        'B' => 'ℬ',
+                        'E' => 'ℰ',
+                        'F' => 'ℱ',
+                        'H' => 'ℋ',
+                        'I' => 'ℐ',
+                        'L' => 'ℒ',
+                        'M' => 'ℳ',
+                        'R' => 'ℛ',
+                        'A'..='Z' => {
+                            let offset = c as u32 - 'A' as u32;
+                            char::from_u32(0x1D49C + offset).unwrap_or(c)
+                        }
+                        _ => c,
+                    })
+                    .collect();
+                s = format!("{}{}{}", &s[..start], converted, &s[start + prefix_len + close + 1..]);
+            } else {
+                break;
+            }
+        }
+    }
+    s
+}
+
+fn convert_operator_limits_depth(input: &str, depth: usize) -> String {
+    const OPS: &[(&str, &str)] = &[
+        ("\\bigoplus", "⨁"),
+        ("\\bigotimes", "⨂"),
+        ("\\bigcup", "⋃"),
+        ("\\bigcap", "⋂"),
+        ("\\bigvee", "⋁"),
+        ("\\bigwedge", "⋀"),
+        ("\\coprod", "∐"),
+        ("\\iiint", "∭"),
+        ("\\iint", "∬"),
+        ("\\oint", "∮"),
+        ("\\sum", "∑"),
+        ("\\prod", "∏"),
+        ("\\int", "∫"),
+    ];
+
+    let mut out = String::new();
+    let chars: Vec<char> = input.chars().collect();
+    let mut i = 0;
+
+    let extract_limit = |pos: usize| -> (Option<String>, usize) {
+        let mut idx = pos;
+        while idx < chars.len() && chars[idx].is_whitespace() {
+            idx += 1;
+        }
+        if idx >= chars.len() {
+            return (None, pos);
+        }
+        if chars[idx] == '{' {
+            let mut d = 1usize;
+            let start = idx + 1;
+            idx += 1;
+            while idx < chars.len() && d > 0 {
+                if chars[idx] == '{' {
+                    d += 1;
+                } else if chars[idx] == '}' {
+                    d -= 1;
+                }
+                idx += 1;
+            }
+            if d == 0 {
+                let inner: String = chars[start..idx - 1].iter().collect();
+                (Some(inner), idx)
+            } else {
+                let inner: String = chars[start..].iter().collect();
+                (Some(inner), chars.len())
+            }
+        } else if chars[idx] == '\\' {
+            let start = idx;
+            idx += 1;
+            while idx < chars.len() && chars[idx].is_ascii_alphabetic() {
+                idx += 1;
+            }
+            let inner: String = chars[start..idx].iter().collect();
+            (Some(inner), idx)
+        } else {
+            let inner = chars[idx].to_string();
+            (Some(inner), idx + 1)
+        }
+    };
+
+    while i < chars.len() {
+        let mut matched_op: Option<(&str, &str)> = None;
+        let rem: String = chars[i..].iter().collect();
+
+        for &(op_tex, op_sym) in OPS {
+            if rem.starts_with(op_tex) {
+                let op_char_len = op_tex.chars().count();
+                let after = i + op_char_len;
+                if after < chars.len() && chars[after].is_ascii_alphabetic() {
+                    continue;
+                }
+                matched_op = Some((op_tex, op_sym));
+                break;
+            }
+        }
+
+        if let Some((op_tex, op_sym)) = matched_op {
+            let op_char_len = op_tex.chars().count();
+            let mut cur = i + op_char_len;
+            let mut sub: Option<String> = None;
+            let mut sup: Option<String> = None;
+
+            for _ in 0..2 {
+                let mut temp = cur;
+                while temp < chars.len() && chars[temp].is_whitespace() {
+                    temp += 1;
+                }
+                if temp < chars.len() {
+                    if chars[temp] == '_' && sub.is_none() {
+                        let (lim, next_pos) = extract_limit(temp + 1);
+                        if let Some(l) = lim {
+                            sub = Some(l);
+                            cur = next_pos;
+                            continue;
+                        }
+                    } else if chars[temp] == '^' && sup.is_none() {
+                        let (lim, next_pos) = extract_limit(temp + 1);
+                        if let Some(l) = lim {
+                            sup = Some(l);
+                            cur = next_pos;
+                            continue;
+                        }
+                    }
+                }
+                break;
+            }
+
+            match (sub, sup) {
+                (Some(b), Some(p)) => {
+                    let cleaned_b = clean_latex_formula_depth(&b, depth);
+                    let cleaned_p = clean_latex_formula_depth(&p, depth);
+                    out.push_str(&format!("{}[{}..{}]", op_sym, cleaned_b, cleaned_p));
+                }
+                (Some(b), None) => {
+                    let cleaned_b = clean_latex_formula_depth(&b, depth);
+                    out.push_str(&format!("{}[{}]", op_sym, cleaned_b));
+                }
+                (None, Some(p)) => {
+                    let cleaned_p = clean_latex_formula_depth(&p, depth);
+                    out.push_str(&format!("{}[..{}]", op_sym, cleaned_p));
+                }
+                (None, None) => {
+                    out.push_str(op_sym);
+                }
+            }
+            i = cur;
+        } else {
+            out.push(chars[i]);
+            i += 1;
+        }
+    }
+
+    out
+}
+
+fn replace_latex_command(mut s: String, from_cmd: &str, to_sym: &str) -> String {
+    let check_alpha = from_cmd.starts_with('\\')
+        && from_cmd
+            .chars()
+            .last()
+            .map(|c| c.is_ascii_alphabetic())
+            .unwrap_or(false);
+
+    let mut idx = 0;
+    while let Some(pos) = s[idx..].find(from_cmd) {
+        let actual_pos = idx + pos;
+        let after = actual_pos + from_cmd.len();
+        if check_alpha && after < s.len() {
+            let next_char = s[after..].chars().next().unwrap();
+            if next_char.is_ascii_alphabetic() {
+                idx = actual_pos + 1;
+                continue;
+            }
+        }
+        s = format!("{}{}{}", &s[..actual_pos], to_sym, &s[after..]);
+        idx = actual_pos + to_sym.len();
+    }
+    s
+}
+
 fn clean_latex_formula(input: &str) -> String {
+    clean_latex_formula_depth(input, 0)
+}
+
+fn clean_latex_formula_depth(input: &str, depth: usize) -> String {
     let mut s = input.to_string();
 
+    // 1. Strip font/style wrappers
     for prefix in &[
         "\\mathbf{", "\\mathit{", "\\mathrm{", "\\textrm{", "\\textbf{", "\\textit{", "\\text{",
+        "\\bm{", "\\boldsymbol{", "\\symbf{", "\\mathsf{", "\\mathtt{",
+        "\\operatorname*{", "\\operatorname{",
     ] {
         while let Some(start) = s.find(prefix) {
             let len = prefix.len();
@@ -2282,7 +2604,16 @@ fn clean_latex_formula(input: &str) -> String {
         }
     }
 
-    // Strip backslash from math function names
+    // Collapse multiple spaces caused by unwrapping (e.g. \text{if } j = 0)
+    while s.contains("  ") {
+        s = s.replace("  ", " ");
+    }
+
+    // 2. Blackboard bold & script
+    s = convert_blackboard(&s);
+    s = convert_script(&s);
+
+    // 3. Strip backslash from math function names
     let math_funcs = [
         ("\\cos", "cos"), ("\\sin", "sin"), ("\\tan", "tan"),
         ("\\sec", "sec"), ("\\csc", "csc"), ("\\cot", "cot"),
@@ -2293,6 +2624,9 @@ fn clean_latex_formula(input: &str) -> String {
         ("\\deg", "deg"), ("\\gcd", "gcd"),
         ("\\min", "min"), ("\\max", "max"), ("\\sup", "sup"),
         ("\\inf", "inf"), ("\\lim", "lim"),
+        ("\\Pr", "Pr"), ("\\var", "Var"), ("\\Var", "Var"),
+        ("\\cov", "Cov"), ("\\Cov", "Cov"),
+        ("\\argmax", "argmax"), ("\\argmin", "argmin"), ("\\arg", "arg"),
     ];
     for (from, to) in math_funcs {
         while let Some(start) = s.find(from) {
@@ -2314,6 +2648,7 @@ fn clean_latex_formula(input: &str) -> String {
         }
     }
 
+    // 4. Fractions
     while let Some(start) = s.find("\\frac{") {
         if let Some(first_close) = s[start + 6..].find('}') {
             let num = &s[start + 6..start + 6 + first_close];
@@ -2329,6 +2664,7 @@ fn clean_latex_formula(input: &str) -> String {
         break;
     }
 
+    // 5. Roots
     while let Some(start) = s.find("\\sqrt{") {
         if let Some(close) = s[start + 6..].find('}') {
             let inner = &s[start + 6..start + 6 + close];
@@ -2338,20 +2674,76 @@ fn clean_latex_formula(input: &str) -> String {
         }
     }
 
+    // 6. Big operators with limits (convert \sum_{d=0}^{u} -> ∑[d=0..u])
+    if depth < 2 {
+        s = convert_operator_limits_depth(&s, depth + 1);
+    }
+
+    // 7. Accents
+    let accents = [
+        ("\\hat{", "\u{0302}"),
+        ("\\bar{", "\u{0304}"),
+        ("\\vec{", "\u{20D7}"),
+        ("\\dot{", "\u{0307}"),
+        ("\\ddot{", "\u{0308}"),
+        ("\\tilde{", "\u{0303}"),
+    ];
+    for &(prefix, mark) in &accents {
+        while let Some(start) = s.find(prefix) {
+            let len = prefix.len();
+            if let Some(close) = s[start + len..].find('}') {
+                let inner = &s[start + len..start + len + close];
+                let accented = if inner.chars().count() == 1 {
+                    format!("{}{}", inner, mark)
+                } else {
+                    inner.to_string()
+                };
+                s = format!("{}{}{}", &s[..start], accented, &s[start + len + close + 1..]);
+            } else {
+                break;
+            }
+        }
+    }
+
+    // 8. Delimiters, symbols, arrows, greek
     let replacements = [
+        ("\\left(", "("),
+        ("\\right)", ")"),
+        ("\\left[", "["),
+        ("\\right]", "]"),
+        ("\\left\\{", "{"),
+        ("\\right\\}", "}"),
+        ("\\left|", "|"),
+        ("\\right|", "|"),
+        ("\\left.", ""),
+        ("\\right.", ""),
+        ("\\{", "{"),
+        ("\\}", "}"),
+        ("\\langle", "⟨"),
+        ("\\rangle", "⟩"),
+        ("\\lceil", "⌈"),
+        ("\\rceil", "⌉"),
+        ("\\lfloor", "⌊"),
+        ("\\rfloor", "⌋"),
+        ("\\Vert", "‖"),
+        ("\\|", "‖"),
+        ("\\middle|", "|"),
         ("\\forall", "∀"),
         ("\\exists", "∃"),
         ("\\nexists", "∄"),
         ("\\in", "∈"),
         ("\\notin", "∉"),
         ("\\ni", "∋"),
+        ("\\owns", "∋"),
         ("\\subseteq", "⊆"),
         ("\\subset", "⊂"),
         ("\\supseteq", "⊇"),
         ("\\supset", "⊃"),
         ("\\emptyset", "∅"),
+        ("\\varnothing", "∅"),
         ("\\cap", "∩"),
         ("\\cup", "∪"),
+        ("\\setminus", "\\"),
         ("\\leq", "≤"),
         ("\\le", "≤"),
         ("\\geq", "≥"),
@@ -2359,24 +2751,38 @@ fn clean_latex_formula(input: &str) -> String {
         ("\\neq", "≠"),
         ("\\ne", "≠"),
         ("\\approx", "≈"),
+        ("\\sim", "∼"),
+        ("\\equiv", "≡"),
+        ("\\propto", "∝"),
         ("\\times", "×"),
         ("\\cdot", "·"),
         ("\\div", "÷"),
         ("\\pm", "±"),
+        ("\\mp", "∓"),
         ("\\infty", "∞"),
         ("\\partial", "∂"),
         ("\\nabla", "∇"),
         ("\\sum", "∑"),
         ("\\prod", "∏"),
+        ("\\coprod", "∐"),
         ("\\int", "∫"),
+        ("\\iint", "∬"),
+        ("\\iiint", "∭"),
+        ("\\oint", "∮"),
         ("\\sqrt", "√"),
+        ("\\implies", "⇒"),
+        ("\\impliedby", "⇐"),
+        ("\\iff", "⇔"),
+        ("\\land", "∧"),
+        ("\\lor", "∨"),
+        ("\\neg", "¬"),
+        ("\\lnot", "¬"),
         ("\\rightarrow", "→"),
         ("\\to", "→"),
         ("\\leftarrow", "←"),
         ("\\Rightarrow", "⇒"),
         ("\\Leftarrow", "⇐"),
         ("\\Leftrightarrow", "⇔"),
-        ("\\iff", "⇔"),
         ("\\alpha", "α"),
         ("\\beta", "β"),
         ("\\gamma", "γ"),
@@ -2388,6 +2794,7 @@ fn clean_latex_formula(input: &str) -> String {
         ("\\zeta", "ζ"),
         ("\\eta", "η"),
         ("\\theta", "θ"),
+        ("\\vartheta", "ϑ"),
         ("\\Theta", "Θ"),
         ("\\iota", "ι"),
         ("\\kappa", "κ"),
@@ -2396,35 +2803,41 @@ fn clean_latex_formula(input: &str) -> String {
         ("\\mu", "μ"),
         ("\\nu", "ν"),
         ("\\xi", "ξ"),
+        ("\\Xi", "Ξ"),
         ("\\pi", "π"),
+        ("\\varpi", "ϖ"),
         ("\\Pi", "Π"),
         ("\\rho", "ρ"),
+        ("\\varrho", "ϱ"),
         ("\\sigma", "σ"),
+        ("\\varsigma", "ς"),
         ("\\Sigma", "Σ"),
         ("\\tau", "τ"),
+        ("\\upsilon", "υ"),
+        ("\\Upsilon", "Υ"),
         ("\\phi", "φ"),
+        ("\\varphi", "ϕ"),
         ("\\Phi", "Φ"),
         ("\\chi", "χ"),
         ("\\psi", "ψ"),
         ("\\Psi", "Ψ"),
         ("\\omega", "ω"),
         ("\\Omega", "Ω"),
-        ("\\mathbb{R}", "ℝ"),
-        ("\\mathbb{N}", "ℕ"),
-        ("\\mathbb{Z}", "ℤ"),
-        ("\\mathbb{C}", "ℂ"),
-        ("\\mathbb{Q}", "ℚ"),
         ("\\quad", "  "),
         ("\\qquad", "    "),
         ("\\,", " "),
         ("\\;", " "),
         ("\\:", " "),
+        ("\\!", ""),
         ("\\cdots", "..."),
         ("\\ldots", "..."),
         ("\\dots", "..."),
         ("\\ddots", "⋱"),
         ("\\vdots", "⋮"),
         ("\\dagger", "†"),
+        ("\\ddagger", "‡"),
+        ("\\star", "⋆"),
+        ("\\ast", "*"),
         ("\\oplus", "⊕"),
         ("\\otimes", "⊗"),
         ("\\odot", "⊙"),
@@ -2432,12 +2845,14 @@ fn clean_latex_formula(input: &str) -> String {
         ("\\bullet", "•"),
         ("\\perp", "⟂"),
         ("\\parallel", "∥"),
+        ("~", " "),
     ];
 
     for (from, to) in replacements {
-        s = s.replace(from, to);
+        s = replace_latex_command(s, from, to);
     }
 
+    // 9. Braced subscripts and superscripts
     while let Some(start) = s.find("_{") {
         if let Some(close) = s[start + 2..].find('}') {
             let inner = &s[start + 2..start + 2 + close];
@@ -2458,11 +2873,17 @@ fn clean_latex_formula(input: &str) -> String {
         }
     }
 
+    // 10. Single character subscripts and superscripts
     let single_sub = [
         ("_0", "₀"), ("_1", "₁"), ("_2", "₂"), ("_3", "₃"), ("_4", "₄"),
         ("_5", "₅"), ("_6", "₆"), ("_7", "₇"), ("_8", "₈"), ("_9", "₉"),
-        ("_i", "ᵢ"), ("_j", "ⱼ"), ("_k", "ₖ"), ("_n", "ₙ"), ("_m", "ₘ"),
-        ("_t", "ₜ"), ("_x", "ₓ"), ("_y", "ᵧ"),
+        ("_+", "₊"), ("_-", "₋"), ("_=", "₌"),
+        ("_a", "ₐ"), ("_e", "ₑ"), ("_h", "ₕ"),
+        ("_i", "ᵢ"), ("_j", "ⱼ"), ("_k", "ₖ"),
+        ("_l", "ₗ"), ("_m", "ₘ"), ("_n", "ₙ"),
+        ("_o", "ₒ"), ("_p", "ₚ"), ("_r", "ᵣ"),
+        ("_s", "ₛ"), ("_t", "ₜ"), ("_u", "ᵤ"),
+        ("_v", "ᵥ"), ("_x", "ₓ"),
     ];
     for (from, to) in single_sub {
         s = s.replace(from, to);
@@ -2471,7 +2892,13 @@ fn clean_latex_formula(input: &str) -> String {
     let single_sup = [
         ("^0", "⁰"), ("^1", "¹"), ("^2", "²"), ("^3", "³"), ("^4", "⁴"),
         ("^5", "⁵"), ("^6", "⁶"), ("^7", "⁷"), ("^8", "⁸"), ("^9", "⁹"),
-        ("^n", "ⁿ"), ("^i", "ⁱ"), ("^T", "ᵀ"), ("^*", "*"),
+        ("^+", "⁺"), ("^-", "⁻"), ("^=", "⁼"),
+        ("^a", "ᵃ"), ("^b", "ᵇ"), ("^c", "ᶜ"), ("^d", "ᵈ"), ("^e", "ᵉ"),
+        ("^f", "ᶠ"), ("^g", "ᵍ"), ("^h", "ʰ"), ("^i", "ⁱ"), ("^j", "ʲ"),
+        ("^k", "ᵏ"), ("^l", "ˡ"), ("^m", "ᵐ"), ("^n", "ⁿ"), ("^o", "ᵒ"),
+        ("^p", "ᵖ"), ("^r", "ʳ"), ("^s", "ˢ"), ("^t", "ᵗ"), ("^u", "ᵘ"),
+        ("^v", "ᵛ"), ("^w", "ʷ"), ("^x", "ˣ"), ("^y", "ʸ"), ("^z", "ᶻ"),
+        ("^T", "ᵀ"), ("^*", "*"),
     ];
     for (from, to) in single_sup {
         s = s.replace(from, to);
@@ -2660,5 +3087,77 @@ x_2 & (4, 4) & (1, 5) \\ \hline
 
         crate::logger::set_custom_log_dir(None);
         std::fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn test_gemini_expectation_and_summation_limits() {
+        let input = r"$$F(u) = \mathbb{E}[h(u - D)^+] = \sum_{d=0}^{u} (u - d) p_d$$";
+        let sanitized = sanitize_markdown_math(input);
+        assert!(sanitized.contains("F(u) = 𝔼[h(u - D)⁺] = ∑[d=0..u] (u - d) p_d"));
+    }
+
+    #[test]
+    fn test_gemini_indicator_and_inline_math() {
+        let input = r"1. The ordering cost: $K \cdot \mathbb{I}(a > 0) + c \cdot a = 2\mathbb{I}(a > 0) + 1 \cdot a$";
+        let sanitized = sanitize_markdown_math(input);
+        assert!(sanitized.contains("K · 𝕀(a > 0) + c · a = 2𝕀(a > 0) + 1 · a"));
+    }
+
+    #[test]
+    fn test_gemini_piecewise_cases_rendering() {
+        let input = r"$$f(j) = \begin{cases} 0 & \text{if } j = 0 \\ K + c \cdot j = 2 + 1 \cdot j & \text{if } j > 0 \end{cases}$$";
+        let sanitized = sanitize_markdown_math(input);
+        assert!(sanitized.contains("```"));
+        assert!(sanitized.contains("f(j) = ⎧ 0"));
+        assert!(sanitized.contains("if j = 0"));
+        assert!(sanitized.contains("⎩ K + c · j = 2 + 1 · j"));
+        assert!(sanitized.contains("if j > 0"));
+    }
+
+    #[test]
+    fn test_script_and_delimiters() {
+        let input = r"$$\mathcal{S} = \{0, 1, 2\}, \quad \mathcal{A} = \{0, 1, 2\}$$";
+        let sanitized = sanitize_markdown_math(input);
+        assert!(sanitized.contains("𝒮 = {0, 1, 2}"));
+        assert!(sanitized.contains("𝒜 = {0, 1, 2}"));
+    }
+
+    #[test]
+    fn test_integrals_and_infinite_limits() {
+        let input = r"$$\int_{0}^{\infty} e^{-x} dx = 1$$";
+        let sanitized = sanitize_markdown_math(input);
+        assert!(sanitized.contains("∫[0..∞] e⁻ˣ dx = 1"));
+    }
+
+    #[test]
+    fn test_mdp_inventory_response_end_to_end() {
+        let sample = r#"
+* **Inventory State Space:** $S = \{0, 1, 2\}$
+* **Demand Probabilities:**
+  $$P(D = 0) = 0.5, \quad P(D = 1) = 0.3, \quad P(D = 2) = 0.2$$
+* **Ordering Cost:**
+  $$f(j) = \begin{cases} 0 & \text{if } j = 0 \\ K + c \cdot j = 2 + 1 \cdot j & \text{if } j > 0 \end{cases}$$
+* **Holding Cost:**
+  $$F(u) = \mathbb{E}[h(u - D)^+] = \sum_{d=0}^{u} (u - d) p_d$$
+* **Step C:**
+  1. The ordering cost: $K \cdot \mathbb{I}(a > 0) + c \cdot a = 2\mathbb{I}(a > 0) + 1 \cdot a$
+  2. The expected holding cost:
+  $$r(s, a) = \text{Ordering Cost}(a) + F(s + a)$$
+
+| State ($s$) | Action ($a$) | Cost $r(s, a)$ |
+| :---: | :---: | :---: |
+| $0$ | $0$ | **$0.0$** |
+"#;
+        let sanitized = sanitize_markdown_math(sample);
+        assert!(sanitized.contains("S = {0, 1, 2}"));
+        assert!(sanitized.contains("P(D = 0) = 0.5,    P(D = 1) = 0.3,    P(D = 2) = 0.2"));
+        assert!(sanitized.contains("f(j) = ⎧ 0"));
+        assert!(sanitized.contains("⎩ K + c · j = 2 + 1 · j"));
+        assert!(sanitized.contains("F(u) = 𝔼[h(u - D)⁺] = ∑[d=0..u] (u - d) p_d"));
+        assert!(sanitized.contains("2𝕀(a > 0) + 1 · a"));
+        assert!(sanitized.contains("r(s, a) = Ordering Cost(a) + F(s + a)"));
+        assert!(sanitized.contains("┌"));
+        assert!(sanitized.contains("State (s)"));
+        assert!(sanitized.contains("┘"));
     }
 }
